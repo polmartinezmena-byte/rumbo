@@ -8,7 +8,10 @@
   <meta name="theme-color" content="#0f172a">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Rumbo">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
   <link rel="stylesheet" href="css/app.css">
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
@@ -23,6 +26,9 @@
       <input id="q" type="search" placeholder="¿A dónde vas?" autocomplete="off" enterkeyhint="search">
       <button id="btn-favs" class="icon-btn" aria-label="Favoritos" title="Favoritos">
         <svg class="ico" viewBox="0 0 24 24"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"/></svg>
+      </button>
+      <button id="btn-settings" class="icon-btn" aria-label="Ajustes" title="Ajustes">
+        <svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
       </button>
       <button id="btn-menu" class="icon-btn" aria-label="Mapas sin conexión" title="Mapas sin conexión">
         <svg class="ico" viewBox="0 0 24 24"><path d="M12 3v12m0 0-4-4m4 4 4-4"/><path d="M4 17v3h16v-3"/></svg>
@@ -105,7 +111,7 @@
         <button id="btn-close-sos" class="icon-btn" aria-label="Cerrar">✕</button>
       </div>
       <div class="sos-grid">
-        <a class="sos-btn call" href="tel:112"><span class="e">📞</span><span><b>Llamar al 112</b><small>Emergencias · gratis, sin saldo ni cobertura de tu operador</small></span></a>
+        <a id="sos-call" class="sos-btn call" href="tel:112"><span class="e">📞</span><span><b id="sos-call-label">Llamar al 112</b><small>Emergencias · gratis, sin saldo ni cobertura de tu operador</small></span></a>
         <button id="sos-share" class="sos-btn share"><span class="e">📍</span><span><b>Enviar mi ubicación</b><small id="sos-share-sub">a mis contactos de emergencia</small></span></button>
         <button class="sos-btn near" data-cat="hospital"><span class="e">🏥</span><span><b>Hospital más cercano</b><small>Buscando…</small></span></button>
         <button class="sos-btn near" data-cat="fuel"><span class="e">⛽</span><span><b>Gasolinera más cercana</b><small>Buscando…</small></span></button>
@@ -165,7 +171,138 @@
       <ul id="favs" class="list"></ul>
       <button id="btn-fav-here" class="btn full">Guardar mi ubicación actual</button>
     </div>
+    <!-- Ajustes -->
+    <div id="sheet-settings" hidden>
+      <div class="row between">
+        <h2>Ajustes</h2>
+        <button id="btn-close-settings" class="icon-btn" aria-label="Cerrar">✕</button>
+      </div>
+
+      <h3>Navegación</h3>
+      <div class="set-list">
+        <label class="set"><span>Indicaciones por voz</span><input type="checkbox" class="switch" data-set="voice"></label>
+        <label class="set"><span>Evitar peajes por defecto</span><input type="checkbox" class="switch" data-set="avoidTolls"></label>
+      </div>
+
+      <h3>Avisos</h3>
+      <div class="set-list">
+        <label class="set"><span>📷 Radares fijos</span><input type="checkbox" class="switch" data-set="alertFixed"></label>
+        <label class="set"><span>⏱️ Radares de tramo</span><input type="checkbox" class="switch" data-set="alertSection"></label>
+        <label class="set"><span>🚦 Semáforos con cámara</span><input type="checkbox" class="switch" data-set="alertRedLight"></label>
+        <label class="set"><span>Avisar si supero el límite de velocidad</span><input type="checkbox" class="switch" data-set="speedWarning"></label>
+        <div class="set col"><span>Margen antes de avisar</span>
+          <div class="seg seg4" data-seg="speedMargin">
+            <button data-v="0">0</button><button data-v="5">+5</button><button data-v="10">+10</button><button data-v="20">+20</button>
+          </div>
+        </div>
+      </div>
+
+      <h3>Ruta segura ante inundaciones</h3>
+      <div class="set-list">
+        <div class="set col">
+          <div class="seg" data-seg="floodMode">
+            <button data-v="auto">Automático</button><button data-v="on">Siempre</button><button data-v="off">Nunca</button>
+          </div>
+          <small class="muted">Automático: se activa sola cuando hay lluvia fuerte en tu zona.</small>
+        </div>
+      </div>
+
+      <h3>Emergencia</h3>
+      <div class="set-list">
+        <label class="set"><span>Número de emergencias</span><input id="set-emergency" class="set-input" inputmode="tel" maxlength="6"></label>
+        <button class="set link" data-open="contacts"><span>Contactos de emergencia</span><span id="set-contacts-n" class="muted"></span></button>
+      </div>
+
+      <h3>Mapas</h3>
+      <div class="set-list">
+        <button class="set link" data-open="maps"><span>Mapas sin conexión</span><span id="set-maps-n" class="muted"></span></button>
+        <button class="set link" data-open="favs"><span>Favoritos</span><span id="set-favs-n" class="muted"></span></button>
+      </div>
+
+      <h3>Apariencia</h3>
+      <div class="set-list">
+        <div class="set col">
+          <div class="seg" data-seg="theme">
+            <button data-v="auto">Automático</button><button data-v="light">Claro</button><button data-v="dark">Oscuro</button>
+          </div>
+        </div>
+      </div>
+
+      <h3>Privacidad y datos</h3>
+      <p class="small muted">Rumbo no tiene cuentas ni servidores: tus favoritos, contactos y mapas solo están en este dispositivo.</p>
+      <div class="set-list">
+        <button class="set link danger-text" id="btn-wipe-personal"><span>Borrar favoritos y contactos</span></button>
+        <button class="set link danger-text" id="btn-wipe-all"><span>Borrar todos los datos de la app</span></button>
+      </div>
+
+      <h3>Información</h3>
+      <div class="set-list">
+        <button class="set link" data-open="credits"><span>Acerca de Rumbo y créditos</span><span class="muted">›</span></button>
+        <button class="set link" id="btn-replay-onboarding"><span>Ver la bienvenida otra vez</span><span class="muted">›</span></button>
+      </div>
+    </div>
+
+    <!-- Créditos y licencias -->
+    <div id="sheet-credits" hidden>
+      <div class="row between">
+        <h2>Acerca de Rumbo</h2>
+        <button id="btn-close-credits" class="icon-btn" aria-label="Volver">✕</button>
+      </div>
+      <p>Navegador GPS que funciona sin conexión. Las rutas se calculan en tu dispositivo: sin cuenta, sin servidores y sin rastreo.</p>
+      <p class="small"><a href="https://github.com/polmartinezmena-byte/rumbo" target="_blank" rel="noopener">Código fuente en GitHub</a> · Licencia MIT · <span id="app-version"></span></p>
+      <h3>Datos y licencias</h3>
+      <ul class="credits">
+        <li><b>Mapa, calles y lugares</b> © colaboradores de <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> — ODbL. Extractos de <a href="https://download.geofabrik.de" target="_blank" rel="noopener">Geofabrik</a>.</li>
+        <li><b>Teselas del mapa</b>: <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> · OpenMapTiles.</li>
+        <li><b>Radares fijos y de tramo</b>: Dirección General de Tráfico, <a href="https://nap.dgt.es/dataset/radares-fijos-dgt" target="_blank" rel="noopener">Punto de Acceso Nacional</a>.</li>
+        <li><b>Radares de Cataluña</b>: Servei Català de Trànsit, <a href="https://analisi.transparenciacatalunya.cat/en/Transport/Radars-fixos-de-Catalunya/re3y-fftf" target="_blank" rel="noopener">Dades Obertes Catalunya</a> — Llicència oberta d'ús d'informació.</li>
+        <li><b>Radares y semáforos foto-rojo de Madrid</b>: <a href="https://datos.madrid.es" target="_blank" rel="noopener">Ayuntamiento de Madrid</a> — CC BY 4.0.</li>
+        <li><b>Lluvia y caudal de ríos</b>: <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a> — CC BY 4.0 (GloFAS / Copernicus).</li>
+        <li><b>Relieve</b>: <a href="https://registry.opendata.aws/terrain-tiles/" target="_blank" rel="noopener">AWS Terrain Tiles</a> (Mapzen, SRTM y otras fuentes).</li>
+        <li><b>Motor de mapa</b>: <a href="https://maplibre.org" target="_blank" rel="noopener">MapLibre GL JS</a> — BSD-3-Clause.</li>
+      </ul>
+      <h3>Avisos importantes</h3>
+      <ul class="credits small">
+        <li>La ruta segura ante inundaciones es una ayuda para elegir ruta, <b>no un aviso oficial</b>. Sigue a AEMET, Protección Civil y ES-Alert.</li>
+        <li>Los radares móviles no se publican y no se incluyen. Avisar de la ubicación de radares es legal en España; los detectores e inhibidores no.</li>
+        <li>Respeta siempre la señalización: manda sobre lo que indique la app.</li>
+      </ul>
+    </div>
   </section>
+
+  <!-- Bienvenida (primera vez) -->
+  <div id="onboarding" class="onboarding" hidden>
+    <div class="ob-card">
+      <div class="ob-step" data-step="0">
+        <img src="icon.svg" alt="" width="72" height="72">
+        <h2>Bienvenido a Rumbo</h2>
+        <p>Un navegador que <b>funciona sin internet</b>: mapa, rutas por voz, radares, ruta segura si llueve fuerte y un botón SOS.</p>
+        <p class="muted small">Prepáralo ahora con wifi y te servirá aunque te quedes sin cobertura.</p>
+        <button class="btn primary full" data-next>Empezar</button>
+      </div>
+      <div class="ob-step" data-step="1" hidden>
+        <h2>📍 Tu ubicación</h2>
+        <p>Para guiarte y para enviar tu posición en una emergencia. El GPS funciona sin datos móviles y tu ubicación <b>no sale del dispositivo</b>.</p>
+        <button class="btn primary full" id="ob-locate">Permitir ubicación</button>
+        <button class="btn full" data-next>Ahora no</button>
+      </div>
+      <div class="ob-step" data-step="2" hidden>
+        <h2>🗺️ Descarga tu zona</h2>
+        <p id="ob-region-text">Elige la comunidad donde te mueves. Se descarga una vez (mejor con wifi) y ya funciona sin conexión.</p>
+        <select id="ob-region" class="ob-select"></select>
+        <p id="ob-region-size" class="small muted"></p>
+        <button class="btn primary full" id="ob-download">Descargar</button>
+        <button class="btn full" data-next>Más tarde</button>
+      </div>
+      <div class="ob-step" data-step="3" hidden>
+        <h2>🆘 Contactos de emergencia</h2>
+        <p>Con el botón SOS podrás enviarles tu ubicación por SMS en un toque, aunque no tengas datos.</p>
+        <button class="btn primary full" id="ob-contacts">Añadir contactos</button>
+        <button class="btn full" data-next>Más tarde</button>
+      </div>
+      <div class="ob-dots"><span></span><span></span><span></span><span></span></div>
+    </div>
+  </div>
 
   <!-- Mapas sin conexión -->
   <aside id="panel" class="panel" hidden>

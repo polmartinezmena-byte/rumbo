@@ -3,7 +3,7 @@
   { "id": "aragon", "name": "Aragón", "geofabrik": "europe/spain/aragon" },
   { "id": "asturias", "name": "Asturias", "geofabrik": "europe/spain/asturias" },
   { "id": "baleares", "name": "Illes Balears", "geofabrik": "europe/spain/islas-baleares" },
-  { "id": "canarias", "name": "Canarias", "geofabrik": "europe/spain/canarias" },
+  { "id": "canarias", "name": "Canarias", "geofabrik": "africa/canary-islands" },
   { "id": "cantabria", "name": "Cantabria", "geofabrik": "europe/spain/cantabria" },
   { "id": "castilla-la-mancha", "name": "Castilla-La Mancha", "geofabrik": "europe/spain/castilla-la-mancha" },
   { "id": "castilla-y-leon", "name": "Castilla y León", "geofabrik": "europe/spain/castilla-y-leon" },

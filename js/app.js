@@ -2,6 +2,9 @@ import { fmtDist, fmtTime, fmtClock, haversine } from './geo.js';
 import { STYLE_URL, MAX_ZOOM, AVG_TILE_KB, prefetchArea, tileList, removeTiles } from './offline-tiles.js';
 import { Navigator, pointAt, speak, setMuted, isMuted } from './nav.js';
 import { fetchWeather, cachedWeather, LEVELS } from './weather.js';
+import { settings, setSetting, onSettingChange, applyTheme } from './settings.js';
+
+applyTheme();
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -58,7 +61,7 @@ function maneuverSvg(step) {
   return arrowSvg(step.angle || 0);
 }
 
-const SHEETS = ['route', 'nav', 'sos', 'contacts', 'rain', 'favs'];
+const SHEETS = ['route', 'nav', 'sos', 'contacts', 'rain', 'favs', 'settings', 'credits'];
 let sheetNow = null;
 function setSheet(which) {
   sheetNow = which;
@@ -139,10 +142,8 @@ let regionIndex = store.get('regionIndex', null); // catálogo de comunidades pu
 let origin = null, dest = null, route = null, nav = null, simTimer = null;
 let follow = true, gps = null, watchId = null, centerOnFix = false, wakeLock = null;
 let weather = cachedWeather();
-let floodMode = store.get('floodMode', 'auto'); // auto | on | off
 let favs = store.get('favs', []);
 let contacts = store.get('contacts', []);
-let avoidTolls = store.get('avoidTolls', false);
 
 const originMarker = new maplibregl.Marker({ color: '#16a34a' });
 const destMarker = new maplibregl.Marker({ color: '#dc2626' });
@@ -354,8 +355,9 @@ $('#btn-locate').onclick = () => {
 // Situarte al abrir: si ya diste permiso, directamente; si no, se pide una vez.
 centerOnFix = true;
 navigator.permissions?.query({ name: 'geolocation' })
-  .then((r) => { if (r.state !== 'denied') startGps(); else centerOnFix = false; })
-  .catch(() => startGps());
+  // La primera vez no se pide el permiso de golpe: lo explica la bienvenida.
+  .then((r) => { if (r.state === 'granted' || (r.state === 'prompt' && store.get('onboarded'))) startGps(); else centerOnFix = false; })
+  .catch(() => { if (store.get('onboarded')) startGps(); });
 
 // ================================================================== BÚSQUEDA
 let searchTimer;
@@ -429,8 +431,8 @@ map.on('click', (e) => {
 
 // ================================================================== LLUVIA Y RUTA SEGURA
 function floodLevel() {
-  if (floodMode === 'off') return 0;
-  if (floodMode === 'on') return 2;
+  if (settings.floodMode === 'off') return 0;
+  if (settings.floodMode === 'on') return 2;
   return weather && !weather.stale ? weather.level : 0;
 }
 
@@ -454,9 +456,9 @@ function renderRain() {
   pill.hidden = false;
   pill.className = `pill rain l${lvl}`;
   const mm = weather ? `${String(weather.maxHour).replace('.', ',')} mm/h` : '';
-  pill.textContent = floodMode === 'on'
+  pill.textContent = settings.floodMode === 'on'
     ? '⛈️ Ruta segura activada (manual)'
-    : lvl ? `${LEVELS[lvl].icon} ${LEVELS[lvl].label} · ruta segura activada` : `${weather ? LEVELS[0].icon : '🌦️'} Ruta segura: ${floodMode === 'off' ? 'desactivada' : 'automática'}${mm ? ' · ' + mm : ''}`;
+    : lvl ? `${LEVELS[lvl].icon} ${LEVELS[lvl].label} · ruta segura activada` : `${weather ? LEVELS[0].icon : '🌦️'} Ruta segura: ${settings.floodMode === 'off' ? 'desactivada' : 'automática'}${mm ? ' · ' + mm : ''}`;
 
   const w = weather;
   $('#rain-now').innerHTML = w
@@ -465,20 +467,19 @@ function renderRain() {
        Últimas 6 h: ${fmtMm(w.past6)} · próximas 12 h: ${fmtMm(w.next12)}${w.riverRatio >= 1.5 ? `<br>Río cercano: caudal ×${w.riverRatio.toFixed(1).replace('.', ',')} sobre lo normal` : ''}<br>
        <span class="muted">Actualizado ${fmtClock(new Date(w.at))} · Open-Meteo</span></span>`
     : `<span class="small muted">${navigator.onLine ? 'Consultando la lluvia…' : 'Sin conexión y sin lecturas previas. Si llueve fuerte, activa «Llueve fuerte».'}</span>`;
-  $$('.seg button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.mode === floodMode)));
+  $$('#sheet-rain .seg button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.mode === settings.floodMode)));
   $('#rain-mode-help').textContent = {
     auto: 'Con conexión, Rumbo activa sola la ruta segura cuando hay lluvia fuerte en tu zona. Sin conexión usa la última lectura.',
     on: 'Evita badenes y pasos subterráneos y penaliza las calles con riesgo, aunque no haya datos de lluvia. Úsalo sin conexión si está diluviando.',
     off: 'Siempre la ruta más rápida, sin tener en cuenta el riesgo de inundación.',
-  }[floodMode];
+  }[settings.floodMode];
 }
 const fmtMm = (v) => `${String(Math.round(v * 10) / 10).replace('.', ',')} mm`;
 
 $('#rain').onclick = () => { setSheet('rain'); renderRain(); refreshWeather(); };
 $('#btn-close-rain').onclick = backToMain;
-$$('.seg button').forEach((b) => (b.onclick = () => {
-  floodMode = b.dataset.mode;
-  store.set('floodMode', floodMode);
+$$('#sheet-rain .seg button').forEach((b) => (b.onclick = () => {
+  setSetting('floodMode', b.dataset.mode);
   renderRain();
   if (dest) computeRoute({ fit: false }).then(() => setSheet('rain'));
 }));
@@ -522,7 +523,7 @@ async function computeRoute({ fit = true } = {}) {
   }
   try {
     const t0 = performance.now();
-    route = await call('route', { from: [from.lat, from.lon], to: [dest.lat, dest.lon], level: floodLevel(), avoidTolls });
+    route = await call('route', { from: [from.lat, from.lon], to: [dest.lat, dest.lon], level: floodLevel(), avoidTolls: settings.avoidTolls });
     route.ms = Math.round(performance.now() - t0);
   } catch (e) {
     toast(e.message, 5000);
@@ -597,12 +598,12 @@ function showRouteSheet() {
   const alt = route.tollAlt;
   $('#r-toll').hidden = !alt && !route.tollLen;
   if (!$('#r-toll').hidden) {
-    const withT = avoidTolls ? alt : route, without = avoidTolls ? route : alt;
+    const withT = settings.avoidTolls ? alt : route, without = settings.avoidTolls ? route : alt;
     const [bWith, bWithout] = [$('#r-toll [data-toll="0"]'), $('#r-toll [data-toll="1"]')];
     bWith.textContent = withT ? `Con peaje · ${fmtTime(withT.duration)}` : 'Con peaje';
     bWithout.textContent = without ? `Sin peaje · ${fmtTime(without.duration)}` : 'Sin peaje · no hay alternativa';
-    bWith.setAttribute('aria-checked', String(!avoidTolls));
-    bWithout.setAttribute('aria-checked', String(avoidTolls));
+    bWith.setAttribute('aria-checked', String(!settings.avoidTolls));
+    bWithout.setAttribute('aria-checked', String(settings.avoidTolls));
   }
   $('#steps-sum').textContent = `Indicaciones (${route.steps.length})`;
   const ol = $('#steps');
@@ -617,9 +618,8 @@ function showRouteSheet() {
 
 $$('#r-toll button').forEach((b) => (b.onclick = () => {
   const want = b.dataset.toll === '1';
-  if (want === avoidTolls) return;
-  avoidTolls = want;
-  store.set('avoidTolls', avoidTolls);
+  if (want === settings.avoidTolls) return;
+  setSetting('avoidTolls', want);
   computeRoute({ fit: false });
 }));
 
@@ -687,7 +687,7 @@ function renderNav(s) {
     $('#limit').classList.toggle('inferred', s.limitInferred);
     $('#limit').title = s.limitInferred ? 'Límite general para este tipo de vía (no señalizado en el mapa)' : 'Velocidad máxima de la vía';
   }
-  $('#speed').classList.toggle('over', !!(s.limit && kmh > s.limit + 2));
+  $('#speed').classList.toggle('over', !!(s.limit && kmh > s.limit + Math.max(2, settings.speedMargin)));
   let radarTxt = '', over = false;
   if (s.section) {
     radarTxt = `⏱️ Tramo · media ${Math.round(s.section.avg)} km/h${s.section.speed ? ` (límite ${s.section.speed})` : ''} · quedan ${fmtDist(s.section.left)}`;
@@ -735,7 +735,9 @@ $('#btn-recenter').onclick = () => { follow = true; $('#btn-recenter').hidden = 
 $('#btn-go').onclick = () => startNav(false);
 $('#btn-sim').onclick = () => startNav(true);
 $('#btn-stop').onclick = stopNav;
-$('#btn-mute').onclick = () => { setMuted(!isMuted()); $('#btn-mute').textContent = isMuted() ? '🔇' : '🔊'; };
+$('#btn-mute').onclick = () => setSetting('voice', !settings.voice);
+const renderMute = () => { $('#btn-mute').textContent = settings.voice ? '🔊' : '🔇'; setMuted(!settings.voice); };
+renderMute();
 
 // ================================================================== SOS
 function sosPoint() {
@@ -905,15 +907,146 @@ $('#btn-fav-dest').onclick = () => {
   showRouteSheet();
 };
 
+// ================================================================== AJUSTES
+const APP_VERSION = '0.4.0';
+
+function renderSettings() {
+  $$('#sheet-settings input.switch').forEach((i) => (i.checked = !!settings[i.dataset.set]));
+  $$('#sheet-settings .seg[data-seg]').forEach((seg) => {
+    for (const b of seg.querySelectorAll('button')) {
+      b.setAttribute('aria-checked', String(String(settings[seg.dataset.seg]) === b.dataset.v));
+    }
+  });
+  $('#set-emergency').value = settings.emergencyNumber;
+  $('#set-contacts-n').textContent = contacts.length ? `${contacts.length} ›` : 'Ninguno ›';
+  $('#set-favs-n').textContent = `${favs.length} ›`;
+  const maps = Object.values(catalog).map((st) => st.name || (st.region ? st.region : 'Zona a medida'));
+  $('#set-maps-n').textContent = maps.length ? `${maps.length} descargado${maps.length > 1 ? 's' : ''} ›` : 'Ninguno ›';
+}
+
+$('#btn-settings').onclick = () => { setSheet('settings'); renderSettings(); };
+$('#btn-close-settings').onclick = backToMain;
+$('#btn-close-credits').onclick = () => { setSheet('settings'); renderSettings(); };
+$('#app-version').textContent = `versión ${APP_VERSION}`;
+
+$$('#sheet-settings input.switch').forEach((i) => (i.onchange = () => setSetting(i.dataset.set, i.checked)));
+$$('#sheet-settings .seg[data-seg]').forEach((seg) => seg.querySelectorAll('button').forEach((b) => (b.onclick = () => {
+  const cur = settings[seg.dataset.seg];
+  setSetting(seg.dataset.seg, typeof cur === 'number' ? Number(b.dataset.v) : b.dataset.v);
+  renderSettings();
+})));
+$('#set-emergency').onchange = (e) => {
+  const v = e.target.value.replace(/[^\d]/g, '');
+  if (v.length < 3) { toast('Escribe un número de emergencias válido'); e.target.value = settings.emergencyNumber; return; }
+  setSetting('emergencyNumber', v);
+};
+$$('#sheet-settings [data-open]').forEach((b) => (b.onclick = () => {
+  const what = b.dataset.open;
+  if (what === 'contacts') { setSheet('contacts'); renderContacts(); $('#btn-close-contacts').onclick = () => { setSheet('settings'); renderSettings(); $('#btn-close-contacts').onclick = openSos; }; }
+  else if (what === 'favs') { setSheet('favs'); renderFavs(); }
+  else if (what === 'maps') { setSheet(null); $('#btn-menu').click(); }
+  else if (what === 'credits') setSheet('credits');
+}));
+
+$('#btn-wipe-personal').onclick = () => {
+  if (!confirm('¿Borrar todos tus favoritos y contactos de emergencia? No se puede deshacer.')) return;
+  favs = []; contacts = [];
+  store.set('favs', favs); store.set('contacts', contacts);
+  drawFavs();
+  renderSettings();
+  toast('Favoritos y contactos borrados');
+};
+$('#btn-wipe-all').onclick = async () => {
+  if (!confirm('¿Borrar TODOS los datos de Rumbo en este dispositivo (mapas descargados, favoritos, contactos y ajustes)? No se puede deshacer.')) return;
+  worker.terminate();
+  try { localStorage.clear(); } catch { /* nada */ }
+  for (const k of await caches.keys()) await caches.delete(k);
+  await new Promise((r) => { const q = indexedDB.deleteDatabase('rumbo'); q.onsuccess = q.onerror = q.onblocked = r; });
+  for (const reg of (await navigator.serviceWorker?.getRegistrations()) || []) await reg.unregister();
+  location.reload();
+};
+
+function renderEmergencyNumber() {
+  $('#sos-call').href = `tel:${settings.emergencyNumber}`;
+  $('#sos-call-label').textContent = `Llamar al ${settings.emergencyNumber}`;
+}
+renderEmergencyNumber();
+
+onSettingChange((key) => {
+  if (key === 'voice') renderMute();
+  if (key === 'theme') applyTheme();
+  if (key === 'emergencyNumber') renderEmergencyNumber();
+  if (key === 'floodMode') renderRain();
+  if ((key === 'avoidTolls' || key === 'floodMode') && dest && sheetNow !== 'rain') computeRoute({ fit: false });
+});
+
+// ================================================================== BIENVENIDA
+function showOnboarding() {
+  const ob = $('#onboarding');
+  let step = 0;
+  const go = (n) => {
+    step = n;
+    if (n > 3) { ob.hidden = true; store.set('onboarded', true); return; }
+    $$('.ob-step').forEach((s) => (s.hidden = Number(s.dataset.step) !== n));
+    $$('.ob-dots span').forEach((d, i) => d.classList.toggle('on', i === n));
+    if (n === 2) fillRegions();
+  };
+  ob.hidden = false;
+  go(0);
+  $$('#onboarding [data-next]').forEach((b) => (b.onclick = () => go(step + 1)));
+  $('#ob-locate').onclick = () => { centerOnFix = true; startGps(); go(2); };
+  $('#ob-contacts').onclick = () => {
+    go(4);
+    setSheet('contacts');
+    renderContacts();
+  };
+
+  function fillRegions() {
+    const sel = $('#ob-region');
+    const regions = (regionIndex?.regions || []).filter((r) => !r.main);
+    if (!regions.length) {
+      $('#ob-region-text').textContent = 'Aún no hay comunidades publicadas. Puedes descargar la zona que ves en el mapa desde el botón ⬇.';
+      sel.hidden = true;
+      $('#ob-region-size').textContent = '';
+      $('#ob-download').textContent = 'Abrir mapas sin conexión';
+      $('#ob-download').onclick = () => { go(3); $('#btn-menu').click(); };
+      return;
+    }
+    sel.hidden = false;
+    const c = gps ? [gps.lat, gps.lon] : [map.getCenter().lat, map.getCenter().lng];
+    const inside = (r) => c[0] >= r.bbox.s && c[0] <= r.bbox.n && c[1] >= r.bbox.w && c[1] <= r.bbox.e;
+    const area = (r) => (r.bbox.n - r.bbox.s) * (r.bbox.e - r.bbox.w);
+    const guess = regions.filter(inside).sort((a, b) => area(a) - area(b))[0];
+    sel.innerHTML = regions.map((r) => `<option value="${esc(r.id)}"${r === guess ? ' selected' : ''}>${esc(r.name)}</option>`).join('');
+    const size = () => {
+      const r = regions.find((x) => x.id === sel.value);
+      $('#ob-region-size').textContent = r ? `≈ ${mb(r.size + tilesEstimate(r).bytes)} · mejor con wifi` : '';
+    };
+    sel.onchange = size;
+    size();
+    $('#ob-download').textContent = 'Descargar';
+    $('#ob-download').onclick = () => {
+      const r = regions.find((x) => x.id === sel.value);
+      go(3);
+      if (r) {
+        downloadRegion(r);
+        toast(`Descargando ${r.name}… puedes seguir usando la app. El progreso está en ⬇.`, 6000);
+      }
+    };
+  }
+}
+$('#btn-replay-onboarding').onclick = () => { setSheet(null); showOnboarding(); };
+
 // ================================================================== ARRANQUE
 call('init').then((c) => {
   catalog = c;
   drawAreas();
   if (store.get('riskLayer')) toggleRiskLayer(true);
   updateNet();
-  if (!hasMaps()) setTimeout(() => toast('Bienvenido a Rumbo. Descarga tu comunidad (⬇) para usarlo sin conexión.', 6000), 1200);
+  if (!hasMaps() && store.get('onboarded')) setTimeout(() => toast('Descarga tu comunidad (⬇) para usar Rumbo sin conexión.', 6000), 1200);
 });
-loadRegionIndex();
+if (!store.get('onboarded')) loadRegionIndex().then(showOnboarding);
+else loadRegionIndex();
 renderRain();
 refreshWeather();
 

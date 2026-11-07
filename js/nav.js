@@ -1,6 +1,7 @@
 // Guiado giro a giro: proyecta la posición GPS sobre la ruta, decide la siguiente maniobra,
 // la anuncia por voz y detecta cuándo te sales de la ruta.
 import { bearing, fmtDistSpeech } from './geo.js';
+import { settings } from './settings.js';
 
 const RAD = Math.PI / 180;
 const M_PER_DEG = 111320;
@@ -28,7 +29,7 @@ export const setMuted = (m) => { muted = m; if (m) speechSynthesis?.cancel(); };
 export const isMuted = () => muted;
 
 export function speak(text) {
-  if (muted || !('speechSynthesis' in window)) return;
+  if (muted || !settings.voice || !('speechSynthesis' in window)) return;
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
   u.lang = 'es-ES';
@@ -126,7 +127,8 @@ export class Navigator {
     // Radares fijos y semáforos con cámara.
     let radar = null;
     const cams = this.r.cameras || [];
-    while (this.camIdx < cams.length && cams[this.camIdx].along < p.along - 15) this.camIdx++;
+    const camOn = (c) => (c.kind === 3 ? settings.alertRedLight : settings.alertFixed);
+    while (this.camIdx < cams.length && (cams[this.camIdx].along < p.along - 15 || !camOn(cams[this.camIdx]))) this.camIdx++;
     const cam = cams[this.camIdx];
     if (cam) {
       const d = cam.along - p.along;
@@ -144,7 +146,7 @@ export class Navigator {
     // Radares de tramo: aviso previo, inicio, velocidad media y fin.
     let section = null;
     const now = performance.now() / 1000;
-    (this.r.sections || []).forEach((sec, i) => {
+    (settings.alertSection ? this.r.sections || [] : []).forEach((sec, i) => {
       const toStart = sec.start - p.along;
       if (toStart > 0 && toStart <= 600 && !this.spoken.has('s' + i)) {
         this.spoken.add('s' + i);
@@ -169,7 +171,7 @@ export class Navigator {
     const limit = this.r.lim?.[p.j] || 0;
     const limitInferred = !!this.r.limInf?.[p.j];
     const kmh = speed * 3.6;
-    if (limit && kmh > limit + 5) {
+    if (settings.speedWarning && limit && kmh > limit + settings.speedMargin) {
       this.overCount = (this.overCount || 0) + 1;
       if (this.overCount >= 3 && now - (this.overSaid ?? -Infinity) > 45) {
         this.overSaid = now;

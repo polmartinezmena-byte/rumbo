@@ -29,6 +29,8 @@
 - 🆘 **SOS con cinco botones grandes**: llamar al 112, enviar tu ubicación por SMS a tus contactos de emergencia (no necesita datos), y llevarte al hospital, la gasolinera o la farmacia más cercanos.
 - 📷 **Radares fijos, de tramo y semáforos con cámara**: aviso por voz antes de cada uno con su límite. En los tramos calcula tu **velocidad media en directo** y la pone en rojo si la superas.
 - 💶 **Con o sin peaje**: la ruta indica los km de pago y deja elegir viendo el tiempo de cada opción (Logroño → Calahorra: 34 min por la AP-68 o 42 min sin peaje).
+- ⚙️ **Ajustes**: voz, cada tipo de aviso por separado, margen del aviso de velocidad, peajes, ruta segura, número de emergencias, tema claro u oscuro, borrar datos, y los créditos y licencias de todas las fuentes.
+- 👋 **Bienvenida** la primera vez: explica el permiso de ubicación, propone la comunidad donde estás y pide los contactos de emergencia. Se instala en el móvil como una app, con iconos para iOS y Android.
 - ⭐ **Favoritos**, búsqueda local que ignora acentos, «Mi ubicación» al abrir y **modo simulación** para probar rutas desde el ordenador.
 
 ## Ruta segura ante inundaciones
