@@ -371,3 +371,85 @@ export function zbeGuard(G, live, from, to, opts, now) {
   }
   return out;
 }
+
+// ------------------------------------------------------------------ rutas con conexión (sin grafo)
+// Las rutas online no tienen nodos: la ZBE de cada punto se mira directamente en los polígonos.
+let zoneBoxes = null, zoneBoxesKey = null;
+function boxesOf(zones, key) {
+  if (zoneBoxesKey !== key) {
+    zoneBoxes = zones.map((z) => z.polys.map((ring) => {
+      let s = 90, n = -90, w = 180, e = -180;
+      for (const [x, y] of ring) { if (y < s) s = y; if (y > n) n = y; if (x < w) w = x; if (x > e) e = x; }
+      return { s, n, w, e };
+    }));
+    zoneBoxesKey = key;
+  }
+  return zoneBoxes;
+}
+
+/** Índice de la ZBE que contiene un punto (-1 si ninguna); si se solapan, la más restrictiva. */
+export function zoneAt(live, lat, lon) {
+  const zones = live.zbe?.zones || [];
+  const boxes = boxesOf(zones, live.zbe?.updated || live.version);
+  let best = -1;
+  for (let z = 0; z < zones.length; z++) {
+    const polys = zones[z].polys;
+    for (let k = 0; k < polys.length; k++) {
+      const b = boxes[z][k];
+      if (lat < b.s || lat > b.n || lon < b.w || lon > b.e) continue;
+      if (inRing(lon, lat, polys[k])) {
+        if (best < 0 || zones[z].restricted.length > zones[best].restricted.length) best = z;
+        break;
+      }
+    }
+  }
+  return best;
+}
+
+/** Zona de cada punto de la ruta (las rutas online tienen puntos cada pocos metros en ciudad). */
+export function zonesAlong(route, live) {
+  if (!live.zbe?.zones?.length) return null;
+  return route.coords.map(([lo, la]) => zoneAt(live, la, lo));
+}
+
+/** Igual que zbeOnRoute, pero a partir de la zona de cada punto. */
+export function zbeOnCoords(route, zon, live, opts) {
+  const zones = live.zbe?.zones || [];
+  if (!zon) return [];
+  const runs = [];
+  for (let i = 0; i < zon.length; i++) {
+    const z = zon[i];
+    const last = runs[runs.length - 1];
+    if (z < 0) { if (last && last.open) last.open = false; continue; }
+    if (last && last.open && last.z === z) { last.end = route.cum[i]; continue; }
+    const zone = zones[z];
+    const active = zoneActive(zone, new Date(opts.now));
+    runs.push({
+      z, open: true, start: route.cum[i], end: route.cum[i], name: zone.name, url: zone.url,
+      restricted: zone.restricted, days: zone.days, times: zone.times,
+      banned: !!opts.sticker && zone.restricted.includes(opts.sticker) && active, active,
+    });
+  }
+  return runs.map(({ open, z, ...r }) => r);
+}
+
+/** ZBE donde tu etiqueta no puede entrar ahora (índices). */
+export function bannedZones(live, opts) {
+  const zones = live.zbe?.zones || [];
+  if (!zones.length || !opts.sticker || opts.avoidZbe === false) return null;
+  const b = zones.map((z) => z.restricted.includes(opts.sticker) && zoneActive(z, new Date(opts.now)));
+  return b.some(Boolean) ? b : null;
+}
+
+/** Cortes totales de la DGT (y calzadas inundadas) por los que pasa una ruta: [lat, lon] de cada uno. */
+export function closuresOnRoute(route, live) {
+  return incidentsOnRoute(route, live)
+    .filter((x) => x.k === 'cortada' || x.k === 'inundacion')
+    .map((x) => {
+      // Punto de la ruta a la altura del corte: ahí se pide a Valhalla que no pase.
+      let j = 0;
+      while (j < route.cum.length - 1 && route.cum[j + 1] < x.along) j++;
+      const [lo, la] = route.coords[Math.min(j + 1, route.coords.length - 1)];
+      return [la, lo];
+    });
+}

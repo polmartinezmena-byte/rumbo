@@ -174,3 +174,6 @@ export function camerasLayer(G, b) {
   }
   return { type: 'FeatureCollection', features };
 }
+
+/** Solo los radares oficiales (para rutas y mapa con conexión fuera de tus mapas descargados). */
+export const packOfficial = (official) => pack(mergeOfficial([], official, 0));

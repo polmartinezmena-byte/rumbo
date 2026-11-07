@@ -398,24 +398,29 @@ navigator.permissions?.query({ name: 'geolocation' })
 
 // ================================================================== BÚSQUEDA
 let searchTimer;
-$('#q').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(runSearch, 150); });
+$('#q').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(runSearch, navigator.onLine ? 280 : 150); });
 $('#q').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') $('#results li[data-i]')?.click();
   if (e.key === 'Escape') { $('#results').hidden = true; e.target.blur(); }
 });
 
+let searchSeq = 0;
 async function runSearch() {
   const q = $('#q').value.trim();
+  const seq = ++searchSeq;
   const ul = $('#results');
   if (!q) { ul.hidden = true; return; }
   const c = map.getCenter();
   const nq = q.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
   const favHits = favs.filter((f) => f.name.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().includes(nq))
     .map((f) => ({ name: f.name, kind: '★ Favorito', lat: f.lat, lon: f.lon }));
-  const res = [...favHits, ...(hasMaps() ? await call('search', { q, near: [c.lat, c.lng] }) : [])];
+  const canSearch = hasMaps() || navigator.onLine;
+  const found = canSearch ? await call('search', { q, near: [c.lat, c.lng] }).catch(() => []) : [];
+  if (seq !== searchSeq) return; // ya se ha escrito otra cosa
+  const res = [...favHits, ...found];
   ul.innerHTML = '';
-  if (!hasMaps() && !favHits.length) ul.innerHTML = '<li class="empty">Descarga tu comunidad o una zona (botón ⬇) para buscar sin conexión.</li>';
-  else if (!res.length) ul.innerHTML = '<li class="empty">Sin resultados en tus mapas descargados.</li>';
+  if (!canSearch && !favHits.length) ul.innerHTML = '<li class="empty">Sin conexión: descarga tu comunidad o una zona (botón ⬇) para buscar sin red.</li>';
+  else if (!res.length) ul.innerHTML = `<li class="empty">${navigator.onLine ? 'Sin resultados.' : 'Sin resultados en tus mapas descargados.'}</li>`;
   res.forEach((r, i) => {
     const li = document.createElement('li');
     li.dataset.i = i;
@@ -774,7 +779,7 @@ let camTimer;
 function refreshCameras() {
   clearTimeout(camTimer);
   camTimer = setTimeout(async () => {
-    if (!mapReady || !hasMaps() || map.getZoom() < 10 || !worthRefreshing('cams')) return;
+    if (!mapReady || !(hasMaps() || navigator.onLine) || map.getZoom() < 10 || !worthRefreshing('cams')) return;
     map.getSource('cameras').setData(await call('cameras', { bbox: visibleBbox() }));
   }, 250);
 }
@@ -785,8 +790,8 @@ async function computeRoute({ fit = true, foot = walking } = {}) {
   walking = foot;
   // Navegando, la ruta nueva sale de donde vas (GPS o posición simulada), no del punto de salida.
   const from = nav ? (!simTimer && gps) || navPos || origin || gps : origin || gps;
-  if (!hasMaps()) {
-    toast('Primero descarga tu comunidad o una zona en «Mapas sin conexión».');
+  if (!hasMaps() && !navigator.onLine) {
+    toast('Sin conexión: descarga tu comunidad o una zona en «Mapas sin conexión» para calcular rutas sin red.');
     $('#btn-menu').click();
     return;
   }
@@ -882,6 +887,11 @@ function drawRoute() {
 }
 
 function floodNote(r) {
+  if (r.online) {
+    return r.level > 0
+      ? { cls: 'warn', html: '⚠️ Llueve fuerte, pero esta ruta se ha calculado en línea, sin datos de zonas inundables. Descarga esta zona (⬇) para que Rumbo evite los tramos con riesgo.' }
+      : null;
+  }
   if (!r.flood) return r.level > 0 ? { cls: 'warn', html: 'Tus mapas no tienen datos de riesgo de inundación: vuelve a descargarlos para usar la ruta segura.' } : null;
   if (r.level === 0) {
     return r.riskRuns.some((x) => x.hard) && weather?.level
@@ -909,7 +919,7 @@ function floodNote(r) {
 function showRouteSheet() {
   $('#r-time').textContent = (route.foot ? '🚶 ' : '') + fmtTime(route.duration);
   $('#r-dist').textContent = `· ${fmtDist(route.distance)}`;
-  $('#r-to').textContent = `Hacia ${dest.label} · calculada en el dispositivo en ${route.ms} ms`;
+  $('#r-to').textContent = `Hacia ${dest.label} · ${route.online ? 'calculada en línea (fuera de tus mapas)' : `calculada en el dispositivo en ${route.ms} ms`}`;
   const note = floodNote(route);
   $('#r-flood').hidden = !note;
   if (note) { $('#r-flood').className = 'flood-note ' + note.cls; $('#r-flood').innerHTML = note.html; }
@@ -1132,8 +1142,9 @@ async function openSos() {
   for (const btn of $$('.sos-btn.near')) {
     const sub = btn.querySelector('small');
     btn.dataset.lat = '';
-    if (!hasMaps()) { sub.textContent = 'Descarga tu zona para usarlo sin conexión'; continue; }
-    const [it] = await call('nearby', { near: [p.lat, p.lon], cat: btn.dataset.cat });
+    if (!hasMaps() && !navigator.onLine) { sub.textContent = 'Sin conexión: descarga tu zona para usarlo sin red'; continue; }
+    sub.textContent = 'Buscando…';
+    const [it] = await call('nearby', { near: [p.lat, p.lon], cat: btn.dataset.cat }).catch(() => []);
     if (!it) { sub.textContent = 'No hay ninguno en tus mapas descargados'; continue; }
     sub.textContent = `${it.name || it.label} · ${fmtDist(it.dist)}${it.phone ? ' · ' + it.phone : ''}`;
     Object.assign(btn.dataset, { lat: it.lat, lon: it.lon, name: it.name || it.label });
@@ -1179,9 +1190,11 @@ async function renderSosList() {
   }
   const ul = $('#sos-list');
   ul.innerHTML = '';
-  if (!hasMaps()) { ul.innerHTML = '<li class="muted">Descarga tu zona para ver los servicios sin conexión.</li>'; return; }
+  if (!hasMaps() && !navigator.onLine) { ul.innerHTML = '<li class="muted">Sin conexión: descarga tu zona para ver los servicios sin red.</li>'; return; }
+  ul.innerHTML = '<li class="muted">Buscando…</li>';
   const p = sosPoint();
-  const list = await call('nearby', { near: [p.lat, p.lon], cat: sosCat });
+  const list = await call('nearby', { near: [p.lat, p.lon], cat: sosCat }).catch(() => []);
+  ul.innerHTML = '';
   if (!list.length) ul.innerHTML = '<li class="muted">No hay servicios de este tipo en tus mapas.</li>';
   for (const it of list) {
     const li = document.createElement('li');

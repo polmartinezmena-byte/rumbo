@@ -4,14 +4,19 @@
 //   · "region:es"    el mapa general de España (solo carreteras principales) para rutas largas
 // y elige el más detallado que contenga origen y destino. Todo funciona sin conexión.
 import * as db from './db.js';
+import { haversine, bearing } from './geo.js';
 import { overpassQuery, fromOverpass, build } from './graph-build.js';
 import { fetchDem } from './flood.js';
 import { floodGrid } from './flood-zones.js';
 import { deserialize } from './pack.js';
 import * as R from './router.js';
-import { camerasLayer } from './radars.js';
+import { camerasLayer, camerasOnRoute, packOfficial } from './radars.js';
 import { live, loadCached, refresh as refreshLive, summary as liveSummary } from './live.js';
-import { penalties, incidentsOnRoute, zbeOnRoute, fuelOnRoute, liveLayer, warningsOnRoute, warningsAt, zbeGuard } from './live-route.js';
+import {
+  penalties, incidentsOnRoute, zbeOnRoute, fuelOnRoute, liveLayer, warningsOnRoute, warningsAt, zbeGuard,
+  zoneAt, zonesAlong, zbeOnCoords, bannedZones, closuresOnRoute,
+} from './live-route.js';
+import { isOnline, onlineRoute, annotate, searchOnline, nearbyOnline } from './online.js';
 import { activeWarnings } from './live.js';
 import { PACKS } from './config.js';
 
@@ -217,8 +222,13 @@ async function installPack({ key, urls, size }, id) {
 async function routeAny(from, to, level, avoidTolls = false, opts = {}) {
   const now = opts.now || Date.now();
   const foot = !!opts.foot;
-  const keys = candidates([from, to]);
-  if (!keys.length) throw new Error('Origen o destino fuera de tus mapas descargados. Descarga la zona o la comunidad.');
+  let keys = candidates([from, to]);
+  // El mapa general de España solo tiene carreteras principales: con conexión es mejor la ruta online.
+  if (isOnline() && keys.every((k) => k === 'region:es')) keys = [];
+  if (!keys.length) {
+    if (isOnline()) return routeOnline(from, to, level, avoidTolls, opts);
+    throw new Error('Sin conexión, y el origen o el destino quedan fuera de tus mapas descargados. Descarga la zona o la comunidad.');
+  }
   let lastErr;
   for (const key of keys) {
     try {
@@ -268,29 +278,150 @@ async function routeAny(from, to, level, avoidTolls = false, opts = {}) {
       lastErr = err;
     }
   }
+  if (isOnline()) return routeOnline(from, to, level, avoidTolls, opts);
   throw lastErr;
+}
+
+// ------------------------------------------------------------------ rutas con conexión
+// Fuera de tus mapas: ruta de Valhalla (OpenStreetMap) + lo que Rumbo sabe sin grafo: radares oficiales,
+// límites de velocidad, incidencias, ZBE, gasolineras y avisos. Lo que no puede saber (zonas inundables)
+// se dice en la ficha de la ruta.
+async function routeOnline(from, to, level, avoidTolls, opts) {
+  const now = opts.now || Date.now();
+  const foot = !!opts.foot;
+  const o = { sticker: opts.sticker || '', avoidZbe: opts.avoidZbe !== false, now };
+  const banned = foot ? null : bannedZones(live, o);
+  const startZone = banned ? zoneAt(live, from[0], from[1]) : -1;
+  const isBan = (z) => z >= 0 && banned[z] && z !== startZone;
+  const radarsP = officialPack().catch(() => null);
+  let zbeLimit = null;
+
+  // Destino dentro de una ZBE prohibida: se llega hasta el último punto antes de entrar en ella.
+  const destZone = banned ? zoneAt(live, to[0], to[1]) : -1;
+  if (isBan(destZone)) {
+    const r0 = await onlineRoute(from, to, { foot, avoidTolls });
+    const zon = zonesAlong(r0, live);
+    let k = zon.length - 1;
+    while (k > 0 && zon[k] === destZone) k--;
+    if (k > 0) {
+      const [lo, la] = r0.coords[k];
+      zbeLimit = { name: live.zbe.zones[destZone].name, reason: 'destino-dentro', metres: Math.round(haversine(la, lo, to[0], to[1])), url: live.zbe.zones[destZone].url };
+      to = [la, lo];
+    }
+  }
+
+  // Se pide la ruta y, si entra en una ZBE prohibida o pasa por un corte de la DGT, se vuelve a pedir
+  // marcando esos puntos como prohibidos (Valhalla no admite polígonos tan grandes como una ZBE).
+  const avoid = [];
+  let r = await onlineRoute(from, to, { foot, avoidTolls });
+  let entries = [];
+  for (let round = 0; round < 5 && !foot; round++) {
+    const zon = banned ? zonesAlong(r, live) : null;
+    entries = [];
+    if (zon) {
+      for (let i = 1; i < zon.length; i++) {
+        if (isBan(zon[i]) && !isBan(zon[i - 1]) && r.distance - r.cum[i] > 60) entries.push(i);
+      }
+    }
+    const closures = closuresOnRoute(r, live).filter(([la, lo]) => !avoid.some((p) => haversine(la, lo, p[0], p[1]) < 30));
+    if (!entries.length && !closures.length) break;
+    const added = [...entries.map((i) => [r.coords[i][1], r.coords[i][0]]), ...closures];
+    avoid.push(...added);
+    try {
+      r = await onlineRoute(from, to, { foot, avoidTolls, avoid });
+    } catch {
+      avoid.splice(avoid.length - added.length); // sin alternativa: se queda la ruta anterior
+      break;
+    }
+  }
+  if (entries.length && banned) {
+    // No hay forma de rodear la zona: te lleva hasta su límite y no más.
+    const i = entries[0];
+    const z = zoneAt(live, r.coords[i][1], r.coords[i][0]);
+    const stop = r.coords[i - 1];
+    r = await onlineRoute(from, [stop[1], stop[0]], { foot, avoidTolls, avoid }).catch(() => r);
+    zbeLimit = { name: live.zbe.zones[z].name, reason: 'sin-alternativa' };
+  }
+
+  // Límites de velocidad y peajes (y la alternativa con / sin peaje) en paralelo.
+  const altP = foot ? null : onlineRoute(from, to, { foot, avoidTolls: !avoidTolls, avoid }).then(annotate).catch(() => null);
+  await annotate(r);
+  const alt = await altP;
+  if (alt && Math.abs(alt.tollLen - r.tollLen) > 50) r.tollAlt = { duration: alt.duration, distance: alt.distance, tollLen: alt.tollLen };
+
+  const cams = await radarsP;
+  Object.assign(r, cams ? camerasOnRoute(cams, r) : {});
+  if (zbeLimit) {
+    r.zbeLimit = zbeLimit;
+    r.steps[r.steps.length - 1].text = 'Has llegado al límite de la zona de bajas emisiones. No entres: con tu etiqueta no puedes circular';
+  }
+  r.level = level;
+  r.graph = 'online';
+  r.incidents = incidentsOnRoute(r, live);
+  r.zbe = zbeOnCoords(r, zonesAlong(r, live), live, o);
+  r.fuel = foot ? null : fuelOnRoute(r, live, opts.fuel);
+  r.avisos = warningsOnRoute(r, activeWarnings(now));
+  delete r.shape;
+  return r;
+}
+
+
+// Radares oficiales de toda España (se guardan para usarlos también sin conexión).
+let offPack = null;
+async function officialPack() {
+  if (offPack) return offPack;
+  let list = null;
+  try {
+    const r = await fetch(PACKS + 'radares-oficiales.json', { signal: AbortSignal.timeout(15000) });
+    if (r.ok) { list = await r.json(); db.set('radares-oficiales', list).catch(() => {}); }
+  } catch { /* sin conexión */ }
+  list ??= await db.get('radares-oficiales');
+  if (!list) return null;
+  offPack = packOfficial(list.map(([lat, lon, speed, kind, sec]) => ({ lat, lon, speed, kind, sec: sec >= 0 ? sec : undefined })));
+  return offPack;
 }
 
 async function searchAll(q, near) {
   const keys = near ? candidates([near]) : Object.keys(catalog);
   const all = Object.keys(catalog);
   const order = [...keys, ...all.filter((k) => !keys.includes(k))].slice(0, 3);
+  // Con conexión también se buscan direcciones y lugares de toda España (con número de portal).
+  const onlineP = isOnline() && q.length >= 3 ? searchOnline(q, near).catch(() => []) : Promise.resolve([]);
   const seen = new Set();
-  const out = [];
-  for (const key of order) {
-    for (const r of R.search(await graph(key), q, near)) {
-      const k = r.name + Math.round(r.lat * 1000) + Math.round(r.lon * 1000);
-      if (!seen.has(k)) { seen.add(k); out.push(r); }
+  const local = [];
+  const key = (r) => r.name.toLowerCase() + Math.round(r.lat * 200) + Math.round(r.lon * 200);
+  for (const k of order) {
+    for (const r of R.search(await graph(k), q, near)) {
+      if (!seen.has(key(r))) { seen.add(key(r)); local.push(r); }
     }
-    if (out.length >= 12) break;
+    if (local.length >= 12) break;
   }
-  return out.slice(0, 12);
+  const online = (await onlineP).filter((r) => !seen.has(key(r)));
+  // Primero lo descargado que está cerca; lo lejano, detrás de los resultados en línea.
+  const close = near ? local.filter((r) => haversine(near[0], near[1], r.lat, r.lon) < 30000) : local;
+  const far = local.filter((r) => !close.includes(r));
+  return [...close.slice(0, 6), ...online, ...close.slice(6), ...far].slice(0, 12);
 }
 
 async function nearbyAll(near, cat) {
   const keys = candidates([near]).filter((k) => k !== 'region:es');
-  if (!keys.length) return [];
-  return R.nearby(await graph(keys[0]), near, cat);
+  const list = keys.length ? R.nearby(await graph(keys[0]), near, cat) : [];
+  if (list.length) return list;
+  // Fuera de tus mapas: gasolineras del Ministerio (guardadas, funcionan sin red) y el resto en línea.
+  const fuel = !cat || cat === 'fuel' ? fuelStations(near) : [];
+  const online = isOnline() && !(cat === 'fuel' && fuel.length) ? await nearbyOnline(near, cat === 'fuel' ? 'fuel' : cat).catch(() => []) : [];
+  return [...online.filter((x) => !(fuel.length && x.kind === 'fuel')), ...fuel].sort((a, b) => a.dist - b.dist).slice(0, 30);
+}
+
+function fuelStations(near, max = 15) {
+  const F = live.fuel;
+  if (!F) return [];
+  const out = [];
+  for (let i = 0; i < F.la.length; i++) {
+    const d = haversine(near[0], near[1], F.la[i], F.lo[i]);
+    if (d < 30000) out.push({ kind: 'fuel', label: 'Gasolinera', name: F.name[i], phone: '', lat: F.la[i], lon: F.lo[i], dist: d, bearing: bearing(near[0], near[1], F.la[i], F.lo[i]) });
+  }
+  return out.sort((a, b) => a.dist - b.dist).slice(0, max);
 }
 
 async function riskLayer(bbox) {
@@ -305,6 +436,11 @@ async function camerasIn(bbox) {
   const keys = candidates([c]);
   const fc = { type: 'FeatureCollection', features: [] };
   for (const k of keys.slice(0, 2)) fc.features.push(...camerasLayer(await graph(k), bbox).features);
+  // Fuera de tus mapas: al menos los radares oficiales (DGT, Cataluña, Madrid).
+  if (!keys.length) {
+    const P = await officialPack().catch(() => null);
+    if (P) fc.features.push(...camerasLayer(P, bbox).features);
+  }
   return fc;
 }
 

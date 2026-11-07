@@ -24,6 +24,7 @@
 ## Qué hace
 
 - 🗺️ **España por comunidades**: descarga tu comunidad (mapa y rutas), la isla que visitas o una zona a medida. Hay además un **mapa general de España** con las carreteras principales para los viajes largos.
+- 🌍 **Toda España con conexión, lo descargado sin ella**: si el origen o el destino quedan fuera de tus mapas y hay red, la ruta se calcula en línea (Valhalla de OpenStreetMap) con los mismos avisos de radares oficiales, límites de velocidad, peajes, ZBE, cortes de la DGT y gasolineras; la búsqueda encuentra cualquier dirección con número (Photon) y el SOS encuentra hospitales y farmacias. Sin red, todo sale de lo que has descargado. Lo único que no tiene una ruta en línea es el riesgo de inundación calle a calle, y la ficha de la ruta lo dice.
 - 🧭 **Rutas en el dispositivo** con A\* en un Web Worker. Respeta sentidos únicos y rotondas, y da indicaciones en español («En 200 metros, gira a la derecha por Gran Vía»). Recalcula si te sales de la ruta y mantiene la pantalla encendida.
 - 🌧️ **Ruta segura ante inundaciones**: con conexión consulta la lluvia y el caudal de los ríos, y activa sola una ruta que evita badenes, pasos inferiores y calles bajas junto a ríos y ramblas. Sin conexión funciona igual con el botón «Llueve fuerte». [Cómo se calcula ↓](#ruta-segura-ante-inundaciones)
 - 🆘 **SOS con cinco botones grandes**: llamar al 112, enviar tu ubicación por SMS a tus contactos de emergencia (no necesita datos), y llevarte al hospital, la gasolinera o la farmacia más cercanos.
@@ -102,6 +103,7 @@ Los datos oficiales tienen prioridad. Un radar de OSM a menos de 40 m de uno ofi
 | Paquetes | [`js/pack.js`](js/pack.js) · [`tools/`](tools) | Formato binario propio. El lector de PBF de OpenStreetMap y el decodificador PNG están escritos desde cero, **sin dependencias**. |
 | Offline | [`sw.js`](sw.js) | *Cache-first* para teselas (la clave no lleva la versión del planeta, así que no caducan) y *network-first* para el estilo. |
 | Lluvia | [`js/weather.js`](js/weather.js) | Umbrales inspirados en los de AEMET y caudal de ríos (GloFAS). |
+| Con conexión | [`js/online.js`](js/online.js) | Fuera de tus mapas: Valhalla (ruta, `trace_attributes` para límites y peajes), Photon (direcciones) y Overpass. Valhalla no admite polígonos tan grandes como una ZBE, así que la ruta se pide otra vez prohibiendo los puntos donde entraría en la zona. |
 | Datos en directo | [`js/live.js`](js/live.js) · [`js/live-route.js`](js/live-route.js) · [`tools/datos.mjs`](tools/datos.mjs) | La DGT no admite peticiones desde el navegador (CORS): un workflow publica incidencias y ZBE cada 15 min en la rama `datos`. Los precios se piden directamente al Ministerio. Todo queda guardado para usarlo sin conexión. |
 
 Los paquetes se publican en **GitHub Pages**, el mismo origen que la app, porque los *Releases* de GitHub no permiten descargas desde el navegador (CORS). Cada archivo se trocea en partes de menos de 100 MB.
