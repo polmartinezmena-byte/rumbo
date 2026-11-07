@@ -12,7 +12,9 @@ const CARD = ['norte', 'noreste', 'este', 'sureste', 'sur', 'suroeste', 'oeste',
 // subterráneos: con nivel 2 se evitan del todo salvo que no exista otra forma de llegar.
 const K = [0, 3, 12];
 const HARD = [1, 30, Infinity];
-const RISKY = 0.5;
+// A partir de aquí un tramo cuenta como «zona de riesgo» (avisos y textos): zonas oficiales del SNCZI,
+// badenes, pasos inferiores y vías flood_prone. Las estimaciones propias (≤ 0,55) solo encarecen la ruta.
+const RISKY = 0.58;
 const TOLL_PENALTY = 20; // "sin peaje": solo se usa una autopista de pago si no hay alternativa razonable
 
 export function search(G, q, near) {

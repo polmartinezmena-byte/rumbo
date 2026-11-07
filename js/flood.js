@@ -8,7 +8,24 @@
 //  2. OpenStreetMap: ríos, arroyos, ramblas (intermitentes), badenes (ford), túneles y pasos
 //     inferiores (tunnel / layer < 0), y vías etiquetadas flood_prone=yes.
 //
-// Es una estimación para elegir mejor la ruta, no cartografía oficial de zonas inundables.
+//  3. Zonas inundables OFICIALES del SNCZI (Ministerio para la Transición Ecológica), cuando hay:
+//     T=10, T=100 y T=500 años y zona de flujo preferente (tools/flood-zones.mjs). Son la fuente
+//     principal; las señales 1 y 2 solo llegan a riesgo «medio» para no dar falsas alarmas.
+//
+// Es una ayuda para elegir mejor la ruta, no un aviso oficial.
+
+// Riesgo de cada clase oficial: 0 fuera · 1 T500 · 2 T100 · 3 T10 · 4 flujo preferente.
+export const CLASS_RISK = [0, 0.6, 0.85, 1, 1];
+// Techo de las estimaciones propias (relieve + cauces) para que no marquen solas «riesgo alto».
+const HEURISTIC_MAX = 0.55;
+const HOLLOW_MAX = 0.45;
+
+export function officialClassAt(grid, lat, lon) {
+  if (!grid) return 0;
+  const x = Math.floor((lon - grid.w) / grid.dLon), y = Math.floor((lat - grid.s) / grid.dLat);
+  if (x < 0 || y < 0 || x >= grid.W || y >= grid.H) return 0;
+  return grid.data[y * grid.W + x];
+}
 
 const DEM_Z = 12; // ~30 m por píxel en España: suficiente para la resolución real de los datos (SRTM)
 const DEM_URL = (z, x, y) => `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`;
@@ -113,7 +130,7 @@ function demSampler(dem) {
  * Riesgo (0..1) de cada nodo del grafo.
  * @param waterways  [{ w: peso del cauce (graph-build.js), geom: [[lat, lon], ...] }]
  */
-export function nodeRisk(la, lo, waterways, dem) {
+export function nodeRisk(la, lo, waterways, dem, official = null) {
   const n = la.length;
   const risk = new Float32Array(n);
   const S = demSampler(dem);
@@ -164,7 +181,7 @@ export function nodeRisk(la, lo, waterways, dem) {
           const we = arr[p + 3];
           // Sin relieve: solo la cercanía, con menos peso.
           const hf = Number.isNaN(e) || Number.isNaN(we) ? 0.45 : Math.min(1, Math.max(0, (SAFE_H - (e - we)) / SAFE_H));
-          const v = prox * hf * arr[p + 2];
+          const v = prox * hf * arr[p + 2] * HEURISTIC_MAX;
           if (v > r) r = v;
         }
       }
@@ -175,20 +192,20 @@ export function nodeRisk(la, lo, waterways, dem) {
       const m = S.meanAround(la[i], lo[i]);
       if (!Number.isNaN(m)) {
         const tpi = e - m; // negativo = más bajo que el entorno
-        const v = Math.min(1, Math.max(0, -tpi / 12)) * 0.6;
+        const v = Math.min(1, Math.max(0, -tpi / 12)) * HOLLOW_MAX;
         if (v > r) r = v;
       }
     }
-    risk[i] = r;
+    risk[i] = Math.max(r, CLASS_RISK[officialClassAt(official, la[i], lo[i])]);
   }
   return risk;
 }
 
 /** Riesgo de un tramo a partir de sus nodos y de las etiquetas de la vía. Devuelve [riesgo 0..1, duro 0/1]. */
-export function edgeRisk(rA, rB, t, fordA, fordB) {
+export function edgeRisk(rA, rB, t, fordA, fordB, rMid = 0) {
   const isBridge = t.bridge && t.bridge !== 'no';
   if (isBridge) return [0.05, 0];
-  let r = Math.max(rA, rB);
+  let r = Math.max(rA, rB, rMid);
   let hard = 0;
   const tunnel = t.tunnel && t.tunnel !== 'no' && t.tunnel !== 'building_passage';
   const layer = parseInt(t.layer, 10);

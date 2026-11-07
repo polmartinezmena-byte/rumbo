@@ -6,6 +6,7 @@
 import * as db from './db.js';
 import { overpassQuery, fromOverpass, build } from './graph-build.js';
 import { fetchDem } from './flood.js';
+import { floodGrid } from './flood-zones.js';
 import { deserialize } from './pack.js';
 import * as R from './router.js';
 import { camerasLayer } from './radars.js';
@@ -108,6 +109,8 @@ async function downloadArea(b, id) {
   progress(id, 'Descargando calles, ríos y servicios de OpenStreetMap…', 0.02);
   const q = overpassQuery(b);
   const demP = fetchDem(b, (p) => progress(id, 'Descargando el relieve del terreno…', 0.02 + p * 0.1)).catch(() => null);
+  // Zonas inundables oficiales (SNCZI). Si el servicio falla, se sigue con la estimación propia.
+  const zonesP = floodGrid(b, (m) => progress(id, 'Zonas inundables oficiales: ' + m.trim(), 0.3)).catch(() => null);
   let json, lastErr;
   for (const url of OVERPASS) {
     try {
@@ -127,6 +130,7 @@ async function downloadArea(b, id) {
   const dem = await demP;
   const input = fromOverpass(json.elements);
   input.official = await officialRadars(b);
+  input.floodGrid = await zonesP;
   const G = build(input, b, dem, (msg) => progress(id, msg, 0.7));
   if (!G.la.length) throw new Error('No hay calles en esta zona');
   progress(id, 'Guardando en el dispositivo…', 0.92);

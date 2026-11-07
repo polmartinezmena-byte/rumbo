@@ -2,7 +2,7 @@
 // Código puro (sin DOM): lo usan el worker del navegador y el script de Node que genera
 // los paquetes por comunidad autónoma (tools/build-region.mjs).
 import { haversine, norm } from './geo.js';
-import { nodeRisk, edgeRisk } from './flood.js';
+import { nodeRisk, edgeRisk, officialClassAt, CLASS_RISK } from './flood.js';
 import { buildCameras, isCameraNode } from './radars.js';
 
 export const GRAPH_VERSION = 4;
@@ -183,7 +183,8 @@ export function build(input, bbox, dem = null, onProgress) {
   }
 
   onProgress?.('Calculando el riesgo de inundación…');
-  const nRisk = nodeRisk(la, lo, waterways, dem);
+  const grid = input.floodGrid || null;
+  const nRisk = nodeRisk(la, lo, waterways, dem, grid);
 
   // Lista de adyacencia compacta (CSR) en arrays tipados.
   const n = la.length;
@@ -197,7 +198,9 @@ export function build(input, bbox, dem = null, onProgress) {
   for (let j = 0; j < m; j++) {
     const p = pos[ef[j]]++;
     tgt[p] = et[j]; wt[p] = ew[j]; dist[p] = ed[j]; nmA[p] = en[j]; rbA[p] = er[j]; tollA[p] = etoll[j]; limA[p] = elim[j]; limInf[p] = einf[j];
-    const [r, h] = edgeRisk(nRisk[ef[j]], nRisk[et[j]], ways[eway[j]].tags, isFord[ef[j]], isFord[et[j]]);
+    // Punto medio del tramo: una carretera larga puede cruzar una zona oficial entre dos cruces.
+    const rMid = grid ? CLASS_RISK[officialClassAt(grid, (la[ef[j]] + la[et[j]]) / 2, (lo[ef[j]] + lo[et[j]]) / 2)] : 0;
+    const [r, h] = edgeRisk(nRisk[ef[j]], nRisk[et[j]], ways[eway[j]].tags, isFord[ef[j]], isFord[et[j]], rMid);
     risk[p] = Math.round(r * 255);
     hard[p] = h;
   }
@@ -233,7 +236,7 @@ export function build(input, bbox, dem = null, onProgress) {
   const cams = buildCameras(input.cameraNodes || [], input.relations || [], coordOf, input.official || []);
 
   return {
-    version: GRAPH_VERSION, date: Date.now(), bbox, maxMs, dem: !!dem, waterways: waterways.length,
+    version: GRAPH_VERSION, date: Date.now(), bbox, maxMs, dem: !!dem, waterways: waterways.length, official: !!grid,
     la: Float64Array.from(la), lo: Float64Array.from(lo), off, tgt, wt, dist, nm: nmA, rb: rbA, risk, hard, toll: tollA, lim: limA, limInf, names, snap, ...cams,
     sName, sNorm, sKind, sLa: Float64Array.from(sLa), sLo: Float64Array.from(sLo),
     eKind, eName, ePhone, eLa: Float64Array.from(eLa), eLo: Float64Array.from(eLo),

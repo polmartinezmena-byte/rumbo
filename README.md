@@ -39,11 +39,16 @@ Cada tramo de calle recibe una **puntuación de riesgo** cuando se genera el map
 
 | Señal | Fuente | Por qué |
 |---|---|---|
+| **Zonas inundables oficiales** T10, T100, T500 y zona de flujo preferente | [SNCZI](https://www.miteco.gob.es/es/agua/temas/gestion-de-los-riesgos-de-inundacion/snczi.html), Ministerio para la Transición Ecológica (WFS) | Salen de modelos hidráulicos: es la fuente principal. Riesgo 1 en T10 y flujo preferente, 0,85 en T100 y 0,6 en T500 |
 | Altura sobre el cauce más cercano (una versión simple del índice *HAND*) | Relieve de [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) + ríos de OSM | Estar a pocos metros por encima de un río o una rambla cercana es la mejor señal sencilla de que una zona se inunda |
 | Hondonadas (más bajo que el entorno en ~450 m) | Relieve | Allí se acumula el agua de lluvia |
 | Ramblas y arroyos intermitentes | OSM `intermittent=yes`, `waterway=wadi` | Están secos casi siempre y bajan violentos en una DANA |
 | Badenes, túneles y pasos inferiores | OSM `ford`, `tunnel`, `layer<0` | Son las trampas más peligrosas: con lluvia muy fuerte se evitan del todo |
 | Vías marcadas como inundables | OSM `flood_prone=yes` | Es conocimiento local |
+
+Las señales propias (relieve y cauces) se limitan a riesgo **medio** (≤ 0,55): encarecen la ruta, pero no generan avisos por sí solas. Así se evitan falsas alarmas en ciudades con barrancos, y siguen sirviendo donde no hay mapa oficial. Además de los dos extremos de cada tramo se comprueba su punto medio, porque una carretera larga puede cruzar una zona inundable entre dos cruces.
+
+**Validación con la DANA de Valencia (octubre de 2024).** La primera versión, solo con señales propias, detectaba Paiporta pero no Massanassa, Catarroja ni Alfafar, porque el desbordamiento se extendió kilómetros por la llanura. Con las zonas oficiales, la T500 sí cubre esos municipios. Ningún mapa lo predice todo: Sedaví se inundó y está fuera incluso de la zona T500, porque el episodio superó lo previsto para 500 años.
 
 El coste de cada tramo pasa a ser `tiempo · (1 + K·riesgo²)`, con `K` según la intensidad de la lluvia ([Open-Meteo](https://open-meteo.com)). La app compara la ruta segura con la más rápida y lo explica: *«reduce el recorrido por zonas con riesgo de 2,2 km a 250 m y evita 4 pasos inferiores (+2 min)»* (Logroño, cruzando el Ebro).
 

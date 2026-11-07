@@ -133,3 +133,40 @@ test('UTM 31N (ETRS89) → WGS84', () => {
   const [lat, lon] = utmToLatLon(430620, 4582200, 31);
   assert.ok(Math.abs(lat - 41.387) < 0.003 && Math.abs(lon - 2.17) < 0.003, `${lat}, ${lon}`);
 });
+
+test('zonas oficiales: la ruta segura evita una calle dentro de zona inundable T10 aunque sea más corta', () => {
+  const n = (id, lat, lon) => ({ type: 'node', id, lat, lon });
+  //  1 ── 2 ── 3   ← calle corta, atraviesa una zona T10 (alrededor del nodo 2)
+  //  │         │
+  //  4 ─────── 5   ← rodeo por el sur, fuera de zona
+  const input = fromOverpass([
+    n(1, 40.0, -3.0), n(2, 40.0, -2.995), n(3, 40.0, -2.99), n(4, 39.997, -3.0), n(5, 39.997, -2.99),
+    { type: 'way', id: 1, nodes: [1, 2, 3], tags: { highway: 'residential', name: 'Calle del Barranco' } },
+    { type: 'way', id: 2, nodes: [1, 4, 5, 3], tags: { highway: 'residential', name: 'Ronda Alta' } },
+  ]);
+  // Rejilla oficial: clase 3 (T10) en un cuadrado alrededor de (40.0, -2.995).
+  const grid = { s: 39.99, w: -3.01, dLat: 0.0005, dLon: 0.0005, W: 60, H: 60, data: new Uint8Array(3600) };
+  for (let y = 0; y < 60; y++) for (let x = 0; x < 60; x++) {
+    const lat = grid.s + (y + 0.5) * grid.dLat, lon = grid.w + (x + 0.5) * grid.dLon;
+    if (Math.abs(lat - 40.0) < 0.001 && Math.abs(lon + 2.995) < 0.002) grid.data[y * 60 + x] = 3;
+  }
+  input.floodGrid = grid;
+  const g = build(input, { s: 39.99, w: -3.01, n: 40.02, e: -2.98 });
+  assert.ok(g.official);
+  const fast = R.route(g, [40.0, -3.0], [40.0, -2.99], 0);
+  const safe = R.route(g, [40.0, -3.0], [40.0, -2.99], 2);
+  assert.ok(fast.steps.some((s) => s.name === 'Calle del Barranco'), 'la rápida cruza la zona');
+  assert.ok(fast.riskLen > 300, `la rápida tiene riesgo (${fast.riskLen})`);
+  assert.equal(safe.riskLen, 0, 'la segura no pasa por la zona oficial');
+  assert.ok(safe.steps.some((s) => s.name === 'Ronda Alta'));
+});
+
+test('estimación propia sin datos oficiales: nunca llega a «riesgo alto»', () => {
+  const n = (id, lat, lon) => ({ type: 'node', id, lat, lon });
+  const g = build(fromOverpass([
+    n(1, 40.0, -3.0), n(2, 40.0, -2.999),
+    { type: 'way', id: 1, nodes: [1, 2], tags: { highway: 'residential' } },
+    { type: 'way', id: 9, tags: { waterway: 'river' }, geometry: [{ lat: 40.0001, lon: -3.001 }, { lat: 40.0001, lon: -2.998 }] },
+  ]), { s: 39.99, w: -3.01, n: 40.01, e: -2.99 });
+  for (const r of g.risk) assert.ok(r / 255 <= 0.56, `riesgo ${r / 255}`);
+});

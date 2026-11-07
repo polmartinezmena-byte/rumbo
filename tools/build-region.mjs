@@ -18,6 +18,7 @@ import { build, HIGHWAYS, WATERWAYS, EMERGENCY } from '../js/graph-build.js';
 import { serialize } from '../js/pack.js';
 import { isCameraNode } from '../js/radars.js';
 import { officialRadars, SOURCES } from './official-radars.mjs';
+import { floodGrid } from './flood-zones.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -177,6 +178,12 @@ if (!MAIN && !flag('--no-dem')) {
 }
 
 // ---------------------------------------------------------------- 6. grafo + paquete
+let floodZones = null;
+if (!MAIN && !flag('--no-snczi')) {
+  log('Zonas inundables oficiales (SNCZI, Ministerio para la Transición Ecológica)…');
+  floodZones = await floodGrid(bbox, join(CACHE, 'snczi'), (m) => log(m));
+}
+
 let official = [];
 if (!flag('--no-official')) {
   log('Radares oficiales (DGT, Servei Català de Trànsit, Ayuntamiento de Madrid)…');
@@ -184,7 +191,7 @@ if (!flag('--no-official')) {
 }
 
 log('Construyendo grafo y riesgo de inundación…');
-const G = build({ ways, pois, waterways, fords, coordOf, cameraNodes, relations, official }, bbox, dem, (m) => log(m));
+const G = build({ ways, pois, waterways, fords, coordOf, cameraNodes, relations, official, floodGrid: floodZones }, bbox, dem, (m) => log(m));
 log(`Radares: ${G.cLa.length} (${[...G.cKind].filter((k) => k === 1).length} tramos, ${[...G.cKind].filter((k) => k === 3).length} semáforos) · peaje: ${[...G.toll].filter(Boolean).length} tramos`);
 G.region = region.id;
 G.name = region.name;
@@ -208,7 +215,7 @@ index.regions = index.regions.filter((r) => r.id !== region.id);
 index.regions.push({
   id: region.id, name: region.name, main: MAIN, bbox, files, size: gz.length,
   nodes: G.la.length, edges: G.tgt.length, places: G.sName.length, emergency: G.eKind.length,
-  dem: !!dem, date: new Date().toISOString().slice(0, 10),
+  dem: !!dem, snczi: !!floodZones, date: new Date().toISOString().slice(0, 10),
 });
 index.regions.sort((a, b) => (a.main - b.main) || a.name.localeCompare(b.name, 'es'));
 index.updated = new Date().toISOString();
