@@ -4,6 +4,7 @@
 //   · qué incidencias, ZBE y gasolineras encuentra una ruta concreta
 import { fastDist } from './geo.js';
 import { zoneActive, FUELS, activeWarnings } from './live.js';
+import { nearest } from './router.js';
 
 const M = 111320;
 
@@ -82,8 +83,12 @@ export function zoneOfNode(G, zones, version) {
       const lat = G.la[i], lon = G.lo[i];
       if (lat < r.s || lat > r.n || lon < r.w || lon > r.e) continue;
       const x = Math.floor((lon - r.w) / r.dLon), y = Math.floor((lat - r.s) / r.dLat);
+      // Las calles que hacen de límite de la ZBE se pueden usar: un punto cuenta como «dentro» solo si
+      // también lo están las celdas a su alrededor (≈ 20 m hacia cada lado).
+      const at = (xx, yy) => xx >= 0 && yy >= 0 && xx < r.W && yy < r.H && r.data[yy * r.W + xx];
+      const inside = at(x, y) && at(x - 1, y) && at(x + 1, y) && at(x, y - 1) && at(x, y + 1);
       // ZBE dentro de otra (Distrito Centro dentro de Madrid): manda la que restringe más etiquetas.
-      if (r.data[y * r.W + x] && (out[i] < 0 || zones[out[i]].restricted.length < z.restricted.length)) out[i] = zi;
+      if (inside && (out[i] < 0 || zones[out[i]].restricted.length < z.restricted.length)) out[i] = zi;
     }
   });
   G._zone = out;
@@ -94,7 +99,7 @@ export function zoneOfNode(G, zones, version) {
 // ------------------------------------------------------------------ penalizaciones
 const BLOCK = 500;       // corte total o inundación: solo si no hay otra forma de llegar
 const CARRIAGEWAY = 8;   // calzada cortada (suele ser un sentido)
-const ZBE = 200;         // ZBE donde tu etiqueta no puede entrar ahora
+const ZBE = 5000;        // ZBE donde tu etiqueta no puede entrar ahora: solo para salir si ya estás dentro
 
 function distToSegment(lat, lon, a, b) {
   const kx = Math.cos((lat * Math.PI) / 180) * M;
@@ -118,7 +123,7 @@ export function penalties(G, live, opts) {
   // ZBE
   const zones = live.zbe?.zones || [];
   if (zones.length && opts.avoidZbe && opts.sticker) {
-    const zon = zoneOfNode(G, zones, live.version);
+    const zon = zoneOfNode(G, zones, live.zbe?.updated || live.version);
     const banned = zones.map((z) => z.restricted.includes(opts.sticker) && zoneActive(z, new Date(opts.now)));
     if (banned.some(Boolean)) {
       for (let u = 0; u < G.la.length; u++) {
@@ -206,7 +211,7 @@ export function incidentsOnRoute(route, live) {
 export function zbeOnRoute(G, route, path, live, opts) {
   const zones = live.zbe?.zones || [];
   if (!zones.length || !path) return [];
-  const zon = zoneOfNode(G, zones, live.version);
+  const zon = zoneOfNode(G, zones, live.zbe?.updated || live.version);
   const runs = [];
   for (let i = 0; i < path.length; i++) {
     const z = zon[path[i]];
@@ -311,4 +316,58 @@ export function liveLayer(live, b, fuelType, sticker) {
     .map((a) => ({ type: 'Feature', properties: { level: a.level, phen: a.phen, area: a.area, expires: a.expires }, geometry: { type: 'MultiPolygon', coordinates: a.polys.map((r) => [r]) } }));
   const fc = (features) => ({ type: 'FeatureCollection', features });
   return { inc: fc(inc), incLines: fc(lines), zbe: fc(zbe), fuel: fc(fuel), avisos: fc(avisos) };
+}
+
+// Prepara la protección frente a ZBE prohibidas para tu etiqueta (ahora mismo):
+//  · si el destino está dentro, se cambia por el punto más cercano fuera de la zona
+//  · después, si la ruta aún entrara en una (sin salir de ella), se corta en el límite
+// Si ya estás dentro de una ZBE, se permite salir de ella (la penalización te saca por lo más corto).
+export function zbeGuard(G, live, from, to, opts, now) {
+  const zones = live.zbe?.zones || [];
+  if (!zones.length || !opts.sticker || opts.avoidZbe === false) return null;
+  const banned = zones.map((z) => z.restricted.includes(opts.sticker) && zoneActive(z, new Date(now)));
+  if (!banned.some(Boolean)) return null;
+  const zon = zoneOfNode(G, zones, live.zbe?.updated || live.version);
+  const isBanned = (i) => zon[i] >= 0 && banned[zon[i]];
+  const S = nearest(G, from[0], from[1]), T = nearest(G, to[0], to[1]);
+  const startZone = isBanned(S.i) ? zon[S.i] : -1;
+  const out = {
+    zoneName: (i) => (zon[i] >= 0 ? zones[zon[i]].name : ''),
+    // Primer nodo de la ruta dentro de una ZBE prohibida distinta de la de salida.
+    firstBannedIndex: (path) => {
+      if (!path) return -1;
+      for (let k = 1; k < path.length; k++) if (isBanned(path[k]) && zon[path[k]] !== startZone) return k;
+      return -1;
+    },
+  };
+  if (isBanned(T.i) && zon[T.i] !== startZone) {
+    // Destino dentro: el punto más cercano FUERA de la zona al que se puede llegar SIN entrar en ella
+    // (los polígonos tienen huecos a los que solo se llega cruzando la zona).
+    const reach = new Uint8Array(G.la.length);
+    const queue = new Int32Array(G.la.length);
+    let qh = 0, qt = 0;
+    reach[S.i] = 1;
+    queue[qt++] = S.i;
+    while (qh < qt) {
+      const u = queue[qh++];
+      for (let e = G.off[u]; e < G.off[u + 1]; e++) {
+        const v = G.tgt[e];
+        if (reach[v] || (isBanned(v) && zon[v] !== startZone)) continue;
+        reach[v] = 1;
+        queue[qt++] = v;
+      }
+    }
+    let best = -1, bd = Infinity;
+    for (let i = 0; i < G.la.length; i++) {
+      if (!reach[i] || isBanned(i)) continue;
+      const d = (G.la[i] - to[0]) ** 2 + ((G.lo[i] - to[1]) * Math.cos((to[0] * Math.PI) / 180)) ** 2;
+      if (d < bd) { bd = d; best = i; }
+    }
+    if (best >= 0) {
+      out.to = [G.la[best], G.lo[best]];
+      const metres = Math.round(Math.sqrt(bd) * 111320);
+      out.retarget = { name: zones[zon[T.i]].name, reason: 'destino-dentro', metres, url: zones[zon[T.i]].url };
+    }
+  }
+  return out;
 }

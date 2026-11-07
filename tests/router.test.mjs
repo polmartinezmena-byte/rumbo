@@ -243,3 +243,27 @@ test('AEMET: abre un .tar con varios avisos', () => {
   assert.equal(files.length, 2);
   assert.equal(parseCap(files[1].data.toString()).length, 1);
 });
+
+import { zbeGuard } from '../js/live-route.js';
+
+test('ZBE prohibida: nunca te mete dentro; si el destino está dentro, te deja en el límite', () => {
+  // Rejilla de calles 5×5; la ZBE es el cuadrado central.
+  const els = [];
+  let id = 1;
+  const nid = (r, c) => r * 10 + c + 1;
+  for (let r = 0; r < 5; r++) for (let c = 0; c < 5; c++) els.push({ type: 'node', id: nid(r, c), lat: 40 + r * 0.002, lon: -3 + c * 0.002 });
+  for (let r = 0; r < 5; r++) els.push({ type: 'way', id: 1000 + id++, nodes: [0, 1, 2, 3, 4].map((c) => nid(r, c)), tags: { highway: 'residential' } });
+  for (let c = 0; c < 5; c++) els.push({ type: 'way', id: 1000 + id++, nodes: [0, 1, 2, 3, 4].map((r) => nid(r, c)), tags: { highway: 'residential' } });
+  const g = build(fromOverpass(els), { s: 39.99, w: -3.01, n: 40.02, e: -2.99 });
+  const sq = [[-2.9965, 40.0035], [-2.9935, 40.0035], [-2.9935, 40.0065], [-2.9965, 40.0065], [-2.9965, 40.0035]];
+  const live = { version: 1, zbe: { updated: 'x', zones: [{ name: 'ZBE Centro', restricted: ['A', 'B'], days: 'LF', times: ['00:00-23:59'], polys: [sq] }] }, inc: null, fuel: null };
+  const now = Date.now();
+  const pen = penalties(g, live, { sticker: 'B', avoidZbe: true, now });
+  const center = [40.004, -2.996];
+  const guard = zbeGuard(g, live, [40.0, -3.0], center, { sticker: 'B', avoidZbe: true }, now);
+  assert.ok(guard.to, 'el destino del centro se cambia');
+  const r = R.route(g, [40.0, -3.0], guard.to, 0, { pen });
+  assert.equal(guard.firstBannedIndex(r.path), -1, 'la ruta no entra en la ZBE');
+  // Con etiqueta ECO no hay restricción
+  assert.equal(zbeGuard(g, live, [40.0, -3.0], center, { sticker: 'ECO', avoidZbe: true }, now), null);
+});

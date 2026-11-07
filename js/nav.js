@@ -67,9 +67,14 @@ export class Navigator {
     this.secT = {};
     const first = route.steps[0];
     const next = route.steps[1];
-    speak(next && next.type !== 'arrive'
-      ? `${first.text}. Después, ${lowerFirst(next.text)}`
-      : first.text);
+    const zbe = route.zbeLimit
+      ? route.zbeLimit.reason === 'destino-dentro'
+        ? ' Tu destino está en una zona de bajas emisiones donde no puedes entrar: te llevo al punto más cercano fuera de ella.'
+        : ' No se puede llegar sin entrar en una zona de bajas emisiones prohibida para tu etiqueta: te llevo hasta su límite.'
+      : '';
+    speak((next && next.type !== 'arrive'
+      ? `${first.text}. Después, ${lowerFirst(next.text)}.`
+      : `${first.text}.`) + zbe);
   }
 
   project(lat, lon, from, to) {

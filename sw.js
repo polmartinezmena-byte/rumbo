@@ -1,5 +1,5 @@
 // Service worker: la app y el mapa funcionan sin conexión.
-const VERSION = 'v10';
+const VERSION = 'v11';
 const SHELL = `rumbo-shell-${VERSION}`;
 const TILES = 'rumbo-tiles-v1';     // compartida con js/offline-tiles.js
 const RUNTIME = 'rumbo-runtime-v1'; // estilo del mapa y TileJSON

@@ -86,6 +86,9 @@ const map = new maplibregl.Map({
   container: 'map', style: mapStyle,
   center: view?.c || [-3.7038, 40.4168], zoom: view?.z ?? (view ? 13 : 5.2),
   attributionControl: { compact: true }, maxPitch: 70,
+  // En pantallas de 3x se dibuja a 2x: apenas se nota y va mucho más fluido.
+  pixelRatio: Math.min(globalThis.devicePixelRatio || 1, 2),
+  fadeDuration: 150,
 });
 addEventListener('resize', () => map.resize());
 document.addEventListener('visibilitychange', () => !document.hidden && map.resize());
@@ -120,6 +123,7 @@ map.on('load', () => {
     paint: { 'line-color': ['case', ['get', 'hard'], '#7c3aed', '#f97316'], 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 3.5, 17, 10] } }, firstSymbol);
   // Radares en el mapa (visibles también con la voz apagada): señal de límite para los fijos
   // (aro rojo) y los de tramo (aro morado), y un semáforo para los semáforos con cámara.
+  apply3d();
   addLiveLayers(firstSymbol);
   addCameraIcons();
   map.addSource('cameras', { type: 'geojson', data: empty });
@@ -525,6 +529,10 @@ async function toggleRiskLayer(on, manual = false) {
 }
 $('#risk-layer').onchange = (e) => toggleRiskLayer(e.target.checked, true);
 
+function apply3d() {
+  for (const l of map.getStyle().layers) if (l.type === 'fill-extrusion') map.setLayoutProperty(l.id, 'visibility', settings.buildings3d ? 'visible' : 'none');
+}
+
 // ================================================================== DATOS EN DIRECTO
 const STICKER_NAME = { 0: 'etiqueta 0', ECO: 'etiqueta ECO', C: 'etiqueta C', B: 'etiqueta B', A: 'un vehículo sin etiqueta' };
 const INC_TEXT = {
@@ -546,6 +554,14 @@ function renderLiveNotes() {
     cur.len += z.end - z.start;
     cur.banned ||= z.banned;
     byZone.set(z.name, cur);
+  }
+  // La ruta se ha cortado o desviado para no entrar en una ZBE prohibida.
+  const lim = route.zbeLimit;
+  if (lim) {
+    const nm = esc(lim.name.replace(/^ZBE\s*/i, ''));
+    out.push(note('bad', lim.reason === 'destino-dentro'
+      ? `⛔ Tu destino está dentro de la <b>ZBE ${nm}</b> y con ${STICKER_NAME[settings.sticker]} no puedes entrar ahora. Te llevo al <b>punto más cercano fuera de la zona</b>, a ${fmtDist(lim.metres)} de tu destino: aparca ahí o sigue en transporte público.`
+      : `⛔ No hay forma de llegar sin entrar en la <b>ZBE ${nm}</b>, donde con ${STICKER_NAME[settings.sticker]} no puedes circular ahora. Te guío <b>solo hasta el límite</b> de la zona.`));
   }
   for (const z of byZone.values()) {
     const name = esc(z.name.replace(/^ZBE\s*/i, ''));
@@ -631,10 +647,21 @@ function addLiveLayers(firstSymbol) {
 }
 
 let liveTimer;
+// Navegando, el mapa se mueve varias veces por segundo: las capas solo se vuelven a pedir si te has
+// desplazado bastante o ha pasado un rato (en un móvil cada petición se nota).
+const lastRefresh = {};
+function worthRefreshing(key) {
+  if (!nav) return true;
+  const c = map.getCenter(), prev = lastRefresh[key];
+  if (prev && haversine(prev.lat, prev.lng, c.lat, c.lng) < 400 && performance.now() - prev.t < 15000) return false;
+  lastRefresh[key] = { lat: c.lat, lng: c.lng, t: performance.now() };
+  return true;
+}
+
 function refreshLiveLayer() {
   clearTimeout(liveTimer);
   liveTimer = setTimeout(async () => {
-    if (!mapReady || map.getZoom() < 8) return;
+    if (!mapReady || map.getZoom() < 8 || !worthRefreshing('live')) return;
     const L = await call('liveLayer', { bbox: visibleBbox(), fuel: settings.fuel, sticker: settings.sticker });
     map.getSource('live-zbe').setData(L.zbe);
     map.getSource('live-avisos').setData(L.avisos);
@@ -690,7 +717,7 @@ let camTimer;
 function refreshCameras() {
   clearTimeout(camTimer);
   camTimer = setTimeout(async () => {
-    if (!mapReady || !hasMaps() || map.getZoom() < 10) return;
+    if (!mapReady || !hasMaps() || map.getZoom() < 10 || !worthRefreshing('cams')) return;
     map.getSource('cameras').setData(await call('cameras', { bbox: visibleBbox() }));
   }, 250);
 }
@@ -905,6 +932,12 @@ function startNav(simulate) {
       computeRoute({ fit: false });
     },
     onArrive: () => {
+      if (route?.zbeLimit) {
+        toast(`⛔ Has llegado al límite de la ZBE ${route.zbeLimit.name.replace(/^ZBE\s*/i, '')}. No entres: con tu etiqueta no puedes circular.`, 7000);
+        saveCar();
+        setTimeout(stopNav, 2500);
+        return;
+      }
       if (walking) {
         toast('Has llegado a tu coche 🚗');
         car = null;
@@ -1273,6 +1306,7 @@ renderEmergencyNumber();
 onSettingChange((key) => {
   if (key === 'voice') renderMute();
   if (key === 'theme') applyTheme();
+  if (key === 'buildings3d') apply3d();
   if (key === 'emergencyNumber') renderEmergencyNumber();
   if (key === 'floodMode') renderRain();
   if (['avoidTolls', 'floodMode', 'sticker', 'avoidZbe', 'fuel'].includes(key) && dest && sheetNow !== 'rain') computeRoute({ fit: false });

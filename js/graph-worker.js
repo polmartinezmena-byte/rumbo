@@ -11,7 +11,7 @@ import { deserialize } from './pack.js';
 import * as R from './router.js';
 import { camerasLayer } from './radars.js';
 import { live, loadCached, refresh as refreshLive, summary as liveSummary } from './live.js';
-import { penalties, incidentsOnRoute, zbeOnRoute, fuelOnRoute, liveLayer, warningsOnRoute, warningsAt } from './live-route.js';
+import { penalties, incidentsOnRoute, zbeOnRoute, fuelOnRoute, liveLayer, warningsOnRoute, warningsAt, zbeGuard } from './live-route.js';
 import { activeWarnings } from './live.js';
 import { PACKS } from './config.js';
 
@@ -224,7 +224,22 @@ async function routeAny(from, to, level, avoidTolls = false, opts = {}) {
     try {
       const G = await graph(key);
       const pen = foot ? null : penalties(G, live, { sticker: opts.sticker || '', avoidZbe: opts.avoidZbe !== false, now });
-      const safe = R.route(G, from, to, level, { avoidTolls, pen, foot });
+      // ---- ZBE donde tu etiqueta no puede entrar: la ruta nunca te mete dentro.
+      const zbeFix = foot ? null : zbeGuard(G, live, from, to, opts, now);
+      if (zbeFix?.to) to = zbeFix.to;
+      let safe = R.route(G, from, to, level, { avoidTolls, pen, foot });
+      if (zbeFix) {
+        // Si aun así la ruta entra (no hay forma de rodearla), se corta en el límite de la zona.
+        const cut = zbeFix.firstBannedIndex(safe.path);
+        if (cut > 0) {
+          const stop = safe.path[cut - 1];
+          const name = zbeFix.zoneName(safe.path[cut]);
+          safe = R.route(G, from, [G.la[stop], G.lo[stop]], level, { avoidTolls, pen, foot });
+          zbeFix.stop = { name, reason: 'sin-alternativa' };
+        }
+        safe.zbeLimit = zbeFix.stop || zbeFix.retarget || null;
+        if (safe.zbeLimit) safe.steps[safe.steps.length - 1].text = 'Has llegado al límite de la zona de bajas emisiones. No entres: con tu etiqueta no puedes circular';
+      }
       safe.graph = key;
       safe.incidents = incidentsOnRoute(safe, live);
       safe.zbe = zbeOnRoute(G, safe, safe.path, live, { sticker: opts.sticker || '', now });

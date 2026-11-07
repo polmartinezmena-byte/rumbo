@@ -17,6 +17,8 @@ export const DEFAULTS = {
   fuel: 'g95',               // g95 | g98 | diesel | dieselp | glp | '' (eléctrico)
   showFuel: true,            // precios en el mapa
   showIncidents: true,       // incidencias de la DGT en el mapa
+  // Edificios en 3D: solo por defecto en dispositivos potentes (en móviles modestos restan fluidez).
+  buildings3d: (globalThis.navigator?.hardwareConcurrency || 4) >= 6 && (globalThis.navigator?.deviceMemory ?? 8) >= 4,
 };
 
 let current = { ...DEFAULTS };

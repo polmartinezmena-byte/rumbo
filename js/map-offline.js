@@ -7,6 +7,16 @@ import { STYLE_URL, TILE_CACHE, tileKey } from './offline-tiles.js';
 const RUNTIME = 'rumbo-runtime-v1';
 const P = 'rumbo://';
 
+// Para arrancar al instante: si ya hay una copia guardada se usa esa y se actualiza en segundo plano
+// (la próxima vez se usará la nueva). Solo la primera vez se espera a la red.
+async function cacheFirstJson(url) {
+  const cache = await caches.open(RUNTIME);
+  const hit = await cache.match(url);
+  if (!hit) return networkFirstJson(url);
+  networkFirstJson(url, 15000).catch(() => {}); // refresco en segundo plano
+  return hit.json();
+}
+
 async function networkFirstJson(url, timeout = 5000) {
   const cache = await caches.open(RUNTIME);
   try {
@@ -24,12 +34,12 @@ async function networkFirstJson(url, timeout = 5000) {
 
 /** Estilo del mapa listo para funcionar sin conexión. */
 export async function offlineStyle() {
-  const style = await networkFirstJson(STYLE_URL);
+  const style = await cacheFirstJson(STYLE_URL);
   for (const src of Object.values(style.sources)) {
     if (src.type !== 'vector' && src.type !== 'raster') continue;
     if (src.url && !src.tiles) {
       try {
-        const tj = await networkFirstJson(src.url);
+        const tj = await cacheFirstJson(src.url);
         Object.assign(src, { tiles: tj.tiles, minzoom: tj.minzoom ?? src.minzoom, maxzoom: tj.maxzoom ?? src.maxzoom, bounds: tj.bounds, attribution: tj.attribution ?? src.attribution });
         delete src.url;
       } catch { continue; }
