@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <title>Rumbo · Navegador sin conexión</title>
+  <meta name="description" content="Navegador GPS que funciona sin internet: mapa, búsqueda, rutas, ruta segura ante inundaciones y SOS, calculados en tu propio dispositivo.">
+  <meta name="theme-color" content="#0f172a">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="css/app.css">
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+</head>
+<body>
+  <div id="map"></div>
+
+  <!-- Barra superior -->
+  <header id="topbar" class="topbar">
+    <div class="search">
+      <svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="q" type="search" placeholder="¿A dónde vas?" autocomplete="off" enterkeyhint="search">
+      <button id="btn-favs" class="icon-btn" aria-label="Favoritos" title="Favoritos">
+        <svg class="ico" viewBox="0 0 24 24"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"/></svg>
+      </button>
+      <button id="btn-menu" class="icon-btn" aria-label="Mapas sin conexión" title="Mapas sin conexión">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M12 3v12m0 0-4-4m4 4 4-4"/><path d="M4 17v3h16v-3"/></svg>
+      </button>
+    </div>
+    <ul id="results" class="results" hidden></ul>
+    <div class="pills">
+      <button id="rain" class="pill rain" hidden></button>
+      <span id="net" class="pill warn" hidden></span>
+    </div>
+  </header>
+
+  <!-- Banner de maniobra -->
+  <div id="banner" class="banner" hidden>
+    <div id="b-icon" class="maneuver"></div>
+    <div class="b-body">
+      <div id="b-dist" class="b-dist"></div>
+      <div id="b-text" class="b-text"></div>
+      <div id="b-warn" class="b-warn" hidden></div>
+      <div id="b-radar" class="b-radar" hidden></div>
+    </div>
+  </div>
+
+  <div class="fabs">
+    <button id="btn-sos" class="fab sos" title="Emergencias">SOS</button>
+    <button id="btn-locate" class="fab" title="Mi ubicación" aria-label="Mi ubicación">
+      <svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+    </button>
+  </div>
+  <button id="btn-recenter" class="recenter" hidden>Recentrar</button>
+  <div id="speed" class="speed" hidden>
+    <div class="speed-now"><b id="speed-v">0</b><small>km/h</small></div>
+    <div id="limit" class="limit" hidden title="Velocidad máxima de la vía"><b id="limit-v"></b></div>
+  </div>
+
+  <section id="sheet" class="sheet" hidden>
+    <!-- Ruta -->
+    <div id="sheet-route" hidden>
+      <div class="row between">
+        <div class="min0">
+          <div class="big"><span id="r-time"></span> <span id="r-dist" class="muted"></span></div>
+          <div id="r-to" class="muted small ellipsis"></div>
+        </div>
+        <div class="row">
+          <button id="btn-fav-dest" class="icon-btn" aria-label="Guardar en favoritos" title="Guardar en favoritos">☆</button>
+          <button id="btn-close-route" class="icon-btn" aria-label="Cerrar ruta">✕</button>
+        </div>
+      </div>
+      <div id="r-extras" class="small muted"></div>
+      <div id="r-toll" class="seg toll" role="radiogroup" aria-label="Peajes" hidden>
+        <button data-toll="0" role="radio"></button>
+        <button data-toll="1" role="radio"></button>
+      </div>
+      <div id="r-flood" class="flood-note" hidden></div>
+      <div class="row gap">
+        <button id="btn-go" class="btn primary grow">Iniciar</button>
+        <button id="btn-sim" class="btn">Simular</button>
+      </div>
+      <details>
+        <summary id="steps-sum">Indicaciones</summary>
+        <ol id="steps" class="steps"></ol>
+      </details>
+    </div>
+
+    <!-- Navegación -->
+    <div id="sheet-nav" hidden>
+      <div class="row between">
+        <div class="stat"><b id="n-eta"></b><small>llegada</small></div>
+        <div class="stat"><b id="n-time"></b><small>restante</small></div>
+        <div class="stat"><b id="n-dist"></b><small>distancia</small></div>
+        <button id="btn-mute" class="icon-btn" aria-label="Silenciar voz" title="Voz">🔊</button>
+      </div>
+      <button id="btn-stop" class="btn danger full">Terminar</button>
+    </div>
+
+    <!-- SOS: 5 botones grandes -->
+    <div id="sheet-sos" hidden>
+      <div class="row between">
+        <h2>Emergencia</h2>
+        <button id="btn-close-sos" class="icon-btn" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="sos-grid">
+        <a class="sos-btn call" href="tel:112"><span class="e">📞</span><span><b>Llamar al 112</b><small>Emergencias · gratis, sin saldo ni cobertura de tu operador</small></span></a>
+        <button id="sos-share" class="sos-btn share"><span class="e">📍</span><span><b>Enviar mi ubicación</b><small id="sos-share-sub">a mis contactos de emergencia</small></span></button>
+        <button class="sos-btn near" data-cat="hospital"><span class="e">🏥</span><span><b>Hospital más cercano</b><small>Buscando…</small></span></button>
+        <button class="sos-btn near" data-cat="fuel"><span class="e">⛽</span><span><b>Gasolinera más cercana</b><small>Buscando…</small></span></button>
+        <button class="sos-btn near" data-cat="pharmacy"><span class="e">💊</span><span><b>Farmacia más cercana</b><small>Buscando…</small></span></button>
+      </div>
+      <p id="sos-coords" class="mono small muted center"></p>
+      <div class="row gap wrap center">
+        <button id="btn-contacts" class="btn small-btn">Editar contactos</button>
+        <button id="btn-more-sos" class="btn small-btn">Más servicios cerca</button>
+      </div>
+      <div id="sos-more" hidden>
+        <div id="sos-cats" class="chips"></div>
+        <ul id="sos-list" class="list"></ul>
+      </div>
+    </div>
+
+    <!-- Contactos de emergencia -->
+    <div id="sheet-contacts" hidden>
+      <div class="row between">
+        <h2>Contactos de emergencia</h2>
+        <button id="btn-close-contacts" class="icon-btn" aria-label="Cerrar">✕</button>
+      </div>
+      <p class="small muted">Se guardan solo en este dispositivo. Al pulsar «Enviar mi ubicación» se abre un SMS ya escrito para ellos: el SMS funciona aunque no tengas datos móviles.</p>
+      <ul id="contacts" class="list"></ul>
+      <form id="contact-form" class="contact-form">
+        <input id="c-name" placeholder="Nombre" autocomplete="name" required>
+        <input id="c-tel" placeholder="Teléfono" type="tel" autocomplete="tel" required>
+        <button class="btn primary">Añadir</button>
+      </form>
+      <button id="btn-pick-contact" class="btn full" hidden>Elegir de la agenda</button>
+    </div>
+
+    <!-- Lluvia y ruta segura -->
+    <div id="sheet-rain" hidden>
+      <div class="row between">
+        <h2>Lluvia y ruta segura</h2>
+        <button id="btn-close-rain" class="icon-btn" aria-label="Cerrar">✕</button>
+      </div>
+      <div id="rain-now" class="card"></div>
+      <div class="seg" role="radiogroup" aria-label="Modo ruta segura">
+        <button data-mode="auto" role="radio">Automático</button>
+        <button data-mode="on" role="radio">Llueve fuerte</button>
+        <button data-mode="off" role="radio">Desactivado</button>
+      </div>
+      <p id="rain-mode-help" class="small muted"></p>
+      <label class="check"><input id="risk-layer" type="checkbox"> Mostrar en el mapa las calles con riesgo de inundación</label>
+      <div class="legend"><span class="l medio"></span>medio <span class="l alto"></span>alto <span class="l paso"></span>badén / paso inferior</div>
+      <p class="small muted disclaimer">Rumbo estima el riesgo con el relieve, los ríos y ramblas, los badenes y los pasos subterráneos de OpenStreetMap. <b>Es una ayuda para elegir ruta, no un aviso oficial.</b> Sigue las indicaciones de <a href="https://www.aemet.es/es/eltiempo/prediccion/avisos" target="_blank" rel="noopener">AEMET</a>, Protección Civil y ES-Alert. Nunca cruces una calle o un badén inundado: con 30 cm de agua un coche puede flotar. Con aviso rojo, lo más seguro es no desplazarse.</p>
+    </div>
+
+    <!-- Favoritos -->
+    <div id="sheet-favs" hidden>
+      <div class="row between">
+        <h2>Favoritos</h2>
+        <button id="btn-close-favs" class="icon-btn" aria-label="Cerrar">✕</button>
+      </div>
+      <ul id="favs" class="list"></ul>
+      <button id="btn-fav-here" class="btn full">Guardar mi ubicación actual</button>
+    </div>
+  </section>
+
+  <!-- Mapas sin conexión -->
+  <aside id="panel" class="panel" hidden>
+    <div class="row between">
+      <h2>Mapas sin conexión</h2>
+      <button id="panel-close" class="icon-btn" aria-label="Cerrar">✕</button>
+    </div>
+    <p class="muted small">Descarga con wifi. Después tendrás mapa, búsqueda, rutas, ruta segura y SOS <b>sin internet</b>.</p>
+
+    <h3>España por comunidades</h3>
+    <div id="regions" class="regions"><p class="small muted">Cargando catálogo…</p></div>
+
+    <h3>Zona a medida</h3>
+    <div id="area-info" class="card"></div>
+    <p id="area-estimate" class="small muted"></p>
+    <button id="btn-download" class="btn primary full">Descargar zona visible</button>
+    <button id="btn-clear" class="btn full" hidden>Borrar zona a medida</button>
+
+    <div id="dl" class="dl" hidden>
+      <div class="bar"><span id="dl-bar"></span></div>
+      <small id="dl-text" class="muted"></small>
+    </div>
+    <p id="storage" class="small muted"></p>
+    <p class="small muted">Datos © colaboradores de <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> · Teselas <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> · Relieve AWS Terrain Tiles · Lluvia <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a>.</p>
+  </aside>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

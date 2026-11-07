@@ -1,0 +1,77 @@
+name: Build region packs
+
+# Genera los paquetes de rutas de cada comunidad autónoma (y el mapa general de España)
+# a partir de los extractos de Geofabrik, y los guarda en la release "packs".
+# El workflow de Pages los publica después junto a la app (mismo origen → sin problemas de CORS).
+on:
+  schedule:
+    - cron: '0 3 1 * *'   # el día 1 de cada mes
+  workflow_dispatch:
+    inputs:
+      regions:
+        description: 'Ids separados por comas (vacío = todas)'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: m
+        run: |
+          if [ -n "${{ inputs.regions }}" ]; then
+            ids=$(echo "${{ inputs.regions }}" | jq -R -c 'split(",") | map(gsub(" ";""))')
+          else
+            ids=$(jq -c '[.[].id]' tools/regions.json)
+          fi
+          echo "matrix=$ids" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        region: ${{ fromJson(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm run build:region -- ${{ matrix.region }}
+      - run: mv packs/index.json packs/index-${{ matrix.region }}.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pack-${{ matrix.region }}
+          path: packs/
+          retention-days: 3
+
+  publish:
+    needs: build
+    if: always()
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pack-*
+          path: packs
+          merge-multiple: true
+      - name: Combinar índices (conserva las regiones que no se han regenerado)
+        run: |
+          gh release view packs >/dev/null 2>&1 || gh release create packs --title "Paquetes de rutas" --notes "Generados automáticamente. © colaboradores de OpenStreetMap (ODbL)."
+          gh release download packs -p index.json -D old || true
+          node tools/merge-index.mjs packs old/index.json
+      - name: Subir a la release
+        run: gh release upload packs packs/*.rumbo.gz* packs/index.json packs/radares-oficiales.json --clobber
+      - name: Volver a publicar la web
+        run: gh workflow run pages.yml

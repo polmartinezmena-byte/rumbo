@@ -1,0 +1,22 @@
+[
+  { "id": "andalucia", "name": "Andalucía", "geofabrik": "europe/spain/andalucia" },
+  { "id": "aragon", "name": "Aragón", "geofabrik": "europe/spain/aragon" },
+  { "id": "asturias", "name": "Asturias", "geofabrik": "europe/spain/asturias" },
+  { "id": "baleares", "name": "Illes Balears", "geofabrik": "europe/spain/islas-baleares" },
+  { "id": "canarias", "name": "Canarias", "geofabrik": "europe/spain/canarias" },
+  { "id": "cantabria", "name": "Cantabria", "geofabrik": "europe/spain/cantabria" },
+  { "id": "castilla-la-mancha", "name": "Castilla-La Mancha", "geofabrik": "europe/spain/castilla-la-mancha" },
+  { "id": "castilla-y-leon", "name": "Castilla y León", "geofabrik": "europe/spain/castilla-y-leon" },
+  { "id": "cataluna", "name": "Catalunya", "geofabrik": "europe/spain/cataluna" },
+  { "id": "ceuta", "name": "Ceuta", "geofabrik": "europe/spain/ceuta" },
+  { "id": "extremadura", "name": "Extremadura", "geofabrik": "europe/spain/extremadura" },
+  { "id": "galicia", "name": "Galicia", "geofabrik": "europe/spain/galicia" },
+  { "id": "la-rioja", "name": "La Rioja", "geofabrik": "europe/spain/la-rioja" },
+  { "id": "madrid", "name": "Comunidad de Madrid", "geofabrik": "europe/spain/madrid" },
+  { "id": "melilla", "name": "Melilla", "geofabrik": "europe/spain/melilla" },
+  { "id": "murcia", "name": "Región de Murcia", "geofabrik": "europe/spain/murcia" },
+  { "id": "navarra", "name": "Navarra", "geofabrik": "europe/spain/navarra" },
+  { "id": "pais-vasco", "name": "Euskadi", "geofabrik": "europe/spain/pais-vasco" },
+  { "id": "valencia", "name": "Comunitat Valenciana", "geofabrik": "europe/spain/valencia" },
+  { "id": "es", "name": "España (carreteras principales)", "geofabrik": "europe/spain", "main": true }
+]

@@ -1,0 +1,202 @@
+// Guiado giro a giro: proyecta la posición GPS sobre la ruta, decide la siguiente maniobra,
+// la anuncia por voz y detecta cuándo te sales de la ruta.
+import { bearing, fmtDistSpeech } from './geo.js';
+
+const RAD = Math.PI / 180;
+const M_PER_DEG = 111320;
+
+// Punto a una distancia dada a lo largo de la ruta (para el simulador).
+export function pointAt(route, along) {
+  const { coords, cum } = route;
+  let lo = 0, hi = cum.length - 1;
+  while (lo < hi - 1) {
+    const mid = (lo + hi) >> 1;
+    if (cum[mid] <= along) lo = mid; else hi = mid;
+  }
+  const a = coords[lo], b = coords[Math.min(lo + 1, coords.length - 1)];
+  const seg = cum[lo + 1] - cum[lo] || 1;
+  const t = Math.min(1, Math.max(0, (along - cum[lo]) / seg));
+  return {
+    lon: a[0] + (b[0] - a[0]) * t,
+    lat: a[1] + (b[1] - a[1]) * t,
+    heading: bearing(a[1], a[0], b[1], b[0]),
+  };
+}
+
+let muted = false;
+export const setMuted = (m) => { muted = m; if (m) speechSynthesis?.cancel(); };
+export const isMuted = () => muted;
+
+export function speak(text) {
+  if (muted || !('speechSynthesis' in window)) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = 'es-ES';
+  const voice = speechSynthesis.getVoices().find((v) => v.lang?.startsWith('es'));
+  if (voice) u.voice = voice;
+  speechSynthesis.speak(u);
+}
+
+const lowerFirst = (s) => s.charAt(0).toLowerCase() + s.slice(1);
+
+export class Navigator {
+  constructor(route, cb) {
+    this.cb = cb;
+    this.setRoute(route);
+  }
+
+  setRoute(route) {
+    this.r = route;
+    this.seg = 0;
+    this.stepIdx = 1;
+    this.spoken = new Set();
+    this.offCount = 0;
+    this.done = false;
+    this.warned = new Set();
+    this.camIdx = 0;
+    this.secT = {};
+    const first = route.steps[0];
+    const next = route.steps[1];
+    speak(next && next.type !== 'arrive'
+      ? `${first.text}. Después, ${lowerFirst(next.text)}`
+      : first.text);
+  }
+
+  project(lat, lon, from, to) {
+    const { coords, cum } = this.r;
+    const kx = Math.cos(lat * RAD) * M_PER_DEG;
+    let best = Infinity, bj = from, bt = 0;
+    for (let j = from; j < to; j++) {
+      const ax = coords[j][0] * kx, ay = coords[j][1] * M_PER_DEG;
+      const dx = coords[j + 1][0] * kx - ax, dy = coords[j + 1][1] * M_PER_DEG - ay;
+      const px = lon * kx - ax, py = lat * M_PER_DEG - ay;
+      const len2 = dx * dx + dy * dy || 1e-9;
+      const t = Math.min(1, Math.max(0, (px * dx + py * dy) / len2));
+      const ex = px - t * dx, ey = py - t * dy;
+      const d = Math.sqrt(ex * ex + ey * ey);
+      if (d < best) { best = d; bj = j; bt = t; }
+    }
+    return { off: best, j: bj, t: bt, along: cum[bj] + bt * (cum[bj + 1] - cum[bj]) };
+  }
+
+  update({ lat, lon, speed = 0, accuracy = 10 }) {
+    if (this.done) return;
+    const n = this.r.coords.length - 1;
+    let p = this.project(lat, lon, Math.max(0, this.seg - 3), Math.min(n, this.seg + 80));
+    if (p.off > 60) p = this.project(lat, lon, 0, n);
+    this.seg = p.j;
+
+    if (p.off > Math.max(35, accuracy * 1.5)) {
+      if (++this.offCount >= 3) {
+        this.offCount = 0;
+        this.cb.onOffRoute?.();
+      }
+    } else this.offCount = 0;
+
+    const steps = this.r.steps;
+    while (this.stepIdx < steps.length - 1 && steps[this.stepIdx].along <= p.along + 3) this.stepIdx++;
+    const step = steps[this.stepIdx];
+    const dist = Math.max(0, step.along - p.along);
+
+    const key = this.stepIdx;
+    const nearTh = 35 + Math.max(0, speed) * 3;
+    if (dist <= nearTh && !this.spoken.has(key + 'n')) {
+      this.spoken.add(key + 'n').add(key + 'f');
+      speak(step.text);
+    } else if (dist <= 400 && dist > nearTh + 80 && !this.spoken.has(key + 'f')) {
+      this.spoken.add(key + 'f');
+      speak(`En ${fmtDistSpeech(dist)}, ${lowerFirst(step.text)}`);
+    }
+
+    // Avisos de tramos con riesgo de inundación (solo con el modo ruta segura activo).
+    let warn = null;
+    if (this.r.level > 0) {
+      (this.r.riskRuns || []).forEach((run, i) => {
+        const ahead = run.start - p.along;
+        if (ahead > 350 || p.along > run.end) return;
+        warn = run.hard ? 'Paso inferior o badén: no cruces si hay agua' : 'Tramo con riesgo de inundación';
+        if (this.warned.has(i)) return;
+        this.warned.add(i);
+        speak(run.hard
+          ? 'Atención: más adelante hay un paso inferior o un badén. Si hay agua, no lo cruces.'
+          : 'Atención: más adelante, tramo con riesgo de inundación. Circula con precaución.');
+      });
+    }
+
+    // Radares fijos y semáforos con cámara.
+    let radar = null;
+    const cams = this.r.cameras || [];
+    while (this.camIdx < cams.length && cams[this.camIdx].along < p.along - 15) this.camIdx++;
+    const cam = cams[this.camIdx];
+    if (cam) {
+      const d = cam.along - p.along;
+      if (d <= Math.max(300, speed * 20)) {
+        radar = { kind: cam.kind, speed: cam.speed, dist: Math.max(0, d) };
+        if (!this.spoken.has('c' + this.camIdx)) {
+          this.spoken.add('c' + this.camIdx);
+          speak(cam.kind === 3
+            ? `Semáforo con cámara a ${fmtDistSpeech(d)}`
+            : `Radar a ${fmtDistSpeech(d)}${cam.speed ? `. Límite ${cam.speed}` : ''}`);
+        }
+      }
+    }
+
+    // Radares de tramo: aviso previo, inicio, velocidad media y fin.
+    let section = null;
+    const now = performance.now() / 1000;
+    (this.r.sections || []).forEach((sec, i) => {
+      const toStart = sec.start - p.along;
+      if (toStart > 0 && toStart <= 600 && !this.spoken.has('s' + i)) {
+        this.spoken.add('s' + i);
+        speak(`Tramo de control de velocidad en ${fmtDistSpeech(toStart)}${sec.speed ? `. Límite ${sec.speed}` : ''}`);
+      }
+      if (p.along >= sec.start && p.along <= sec.end) {
+        if (!this.secT[i]) {
+          this.secT[i] = { t: now, a: p.along };
+          speak(`Inicio de tramo de ${fmtDistSpeech(sec.end - sec.start)}${sec.speed ? `. Mantén la media por debajo de ${sec.speed}` : ''}`);
+        }
+        const st = this.secT[i];
+        const el = now - st.t;
+        section = { speed: sec.speed, avg: el > 3 ? ((p.along - st.a) / el) * 3.6 : speed * 3.6, left: sec.end - p.along };
+      } else if (p.along > sec.end && this.secT[i] && !this.spoken.has('se' + i)) {
+        this.spoken.add('se' + i);
+        const st = this.secT[i];
+        speak(`Fin del tramo. Velocidad media ${Math.round(((sec.end - st.a) / Math.max(1, now - st.t)) * 3.6)}`);
+      }
+    });
+
+    // Límite de la vía actual y aviso si lo superas durante varios segundos (máx. uno cada 45 s).
+    const limit = this.r.lim?.[p.j] || 0;
+    const limitInferred = !!this.r.limInf?.[p.j];
+    const kmh = speed * 3.6;
+    if (limit && kmh > limit + 5) {
+      this.overCount = (this.overCount || 0) + 1;
+      if (this.overCount >= 3 && now - (this.overSaid ?? -Infinity) > 45) {
+        this.overSaid = now;
+        speak(`Atención: el límite es ${limit}`);
+      }
+    } else this.overCount = 0;
+
+    const remaining = Math.max(0, this.r.distance - p.along);
+    const remTime = this.r.duration * (remaining / (this.r.distance || 1));
+    const a = this.r.coords[p.j], b = this.r.coords[p.j + 1];
+    const snapped = [a[0] + (b[0] - a[0]) * p.t, a[1] + (b[1] - a[1]) * p.t];
+
+    this.cb.onUpdate?.({
+      step, dist, remaining, remTime, snapped, along: p.along,
+      heading: bearing(a[1], a[0], b[1], b[0]),
+      offRoute: p.off,
+      warn,
+      radar,
+      section,
+      speed,
+      limit,
+      limitInferred,
+    });
+
+    if (remaining < 20) {
+      this.done = true;
+      this.cb.onArrive?.();
+    }
+  }
+}
