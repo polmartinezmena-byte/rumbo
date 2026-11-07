@@ -5,6 +5,7 @@ import { fetchWeather, cachedWeather, LEVELS } from './weather.js';
 import { settings, setSetting, onSettingChange, applyTheme } from './settings.js';
 import { DEV, NATIVE, PACKS } from './config.js';
 import { keepAwake, allowSleep, nativeStop } from './native.js';
+import { offlineStyle, registerOfflineProtocol } from './map-offline.js';
 
 applyTheme();
 
@@ -78,8 +79,11 @@ const backToMain = () => (route && !nav ? showRouteSheet() : setSheet(nav ? 'nav
 
 // ------------------------------------------------------------------ mapa
 const view = store.get('view');
+// Estilo y teselas desde la caché propia (funciona sin conexión también en la app nativa).
+registerOfflineProtocol(maplibregl);
+const mapStyle = await offlineStyle().catch(() => STYLE_URL);
 const map = new maplibregl.Map({
-  container: 'map', style: STYLE_URL,
+  container: 'map', style: mapStyle,
   center: view?.c || [-3.7038, 40.4168], zoom: view?.z ?? (view ? 13 : 5.2),
   attributionControl: { compact: true }, maxPitch: 70,
 });
