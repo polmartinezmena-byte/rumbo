@@ -241,3 +241,25 @@ h3 { font-size: 15px; margin: 18px 0 6px; }
 .ob-dots { display: flex; gap: 6px; justify-content: center; margin-top: 14px; }
 .ob-dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--line); }
 .ob-dots span.on { background: var(--primary); }
+
+/* ---------- v5: ZBE, incidencias, gasolineras, lluvia en ruta, coche ---------- */
+.seg.seg6 { grid-template-columns: repeat(6, 1fr); }
+.seg.seg5 { grid-template-columns: repeat(5, 1fr); }
+.seg button.lbl { font-weight: 800; }
+.seg button.l0[aria-checked="true"] { background: #1d4ed8; color: #fff; }
+.seg button.leco[aria-checked="true"] { background: linear-gradient(90deg, #16a34a 50%, #1d4ed8 50%); color: #fff; }
+.seg button.lc[aria-checked="true"] { background: #16a34a; color: #fff; }
+.seg button.lb[aria-checked="true"] { background: #eab308; color: #111; }
+.live-notes { display: grid; gap: 6px; margin-top: 8px; }
+.live-note { padding: 8px 12px; border-radius: 10px; font-size: 14px; background: var(--surface-2); }
+.live-note.bad { background: #fee2e2; color: #7f1d1d; }
+.live-note.warn { background: #fef3c7; color: #78350f; }
+.live-note.good { background: #dcfce7; color: #14532d; }
+.live-note.info { background: #e0f2fe; color: #0c4a6e; }
+.live-note a { color: inherit; font-weight: 700; }
+.b-live { margin-top: 6px; font-size: 14px; font-weight: 700; background: #fff; color: #111; border-radius: 8px; padding: 4px 8px; display: inline-block; margin-left: 4px; }
+.b-live.bad { background: #dc2626; color: #fff; }
+.price { font-weight: 800; font-variant-numeric: tabular-nums; }
+.price.cheap { color: #16a34a; }
+.car-card { background: var(--surface-2); border-radius: 12px; padding: 12px; margin: 8px 0; display: grid; gap: 8px; }
+.car-card .row { gap: 8px; }

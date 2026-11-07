@@ -29,6 +29,11 @@
 - 🆘 **SOS con cinco botones grandes**: llamar al 112, enviar tu ubicación por SMS a tus contactos de emergencia (no necesita datos), y llevarte al hospital, la gasolinera o la farmacia más cercanos.
 - 📷 **Radares fijos, de tramo y semáforos con cámara**: aviso por voz antes de cada uno con su límite. En los tramos calcula tu **velocidad media en directo** y la pone en rojo si la superas.
 - 💶 **Con o sin peaje**: la ruta indica los km de pago y deja elegir viendo el tiempo de cada opción (Logroño → Calahorra: 34 min por la AP-68 o 42 min sin peaje).
+- ⛽ **La gasolinera más barata en tu ruta**, con los precios oficiales del Ministerio de hoy (más de 11.000 estaciones), el desvío necesario y lo que ahorras frente a la media. Los precios se ven también en el mapa, en verde los más baratos y en rojo los más caros.
+- 🚫 **Zonas de Bajas Emisiones**: 57 ZBE oficiales de la DGT (Madrid, Rondas de Barcelona, Bilbao, Valencia, Sevilla…) con su horario. Le dices tu etiqueta y la ruta evita las zonas donde no puedes entrar ahora (con etiqueta B, de Moncloa a Atocha rodea el Distrito Centro sin perder tiempo) y te avisa al acercarte.
+- 🚧 **Cortes, obras y accidentes de la DGT en directo**: la ruta esquiva las carreteras cortadas y avisa por voz a 1 km de cada incidencia. Un workflow los actualiza cada 15 minutos.
+- 🌧️ **Lluvia a lo largo de toda la ruta**, no solo donde estás: si va a llover fuerte a mitad de camino, se activa antes la ruta segura.
+- 🅿️ **¿Dónde aparqué?**: al llegar guarda dónde dejas el coche y luego te lleva de vuelta **a pie**, por calles de cualquier sentido.
 - ⚙️ **Ajustes**: voz, cada tipo de aviso por separado, margen del aviso de velocidad, peajes, ruta segura, número de emergencias, tema claro u oscuro, borrar datos, y los créditos y licencias de todas las fuentes.
 - 👋 **Bienvenida** la primera vez: explica el permiso de ubicación, propone la comunidad donde estás y pide los contactos de emergencia. Se instala en el móvil como una app, con iconos para iOS y Android.
 - ⭐ **Favoritos**, búsqueda local que ignora acentos, «Mi ubicación» al abrir y **modo simulación** para probar rutas desde el ordenador.
@@ -97,6 +102,7 @@ Los datos oficiales tienen prioridad. Un radar de OSM a menos de 40 m de uno ofi
 | Paquetes | [`js/pack.js`](js/pack.js) · [`tools/`](tools) | Formato binario propio. El lector de PBF de OpenStreetMap y el decodificador PNG están escritos desde cero, **sin dependencias**. |
 | Offline | [`sw.js`](sw.js) | *Cache-first* para teselas (la clave no lleva la versión del planeta, así que no caducan) y *network-first* para el estilo. |
 | Lluvia | [`js/weather.js`](js/weather.js) | Umbrales inspirados en los de AEMET y caudal de ríos (GloFAS). |
+| Datos en directo | [`js/live.js`](js/live.js) · [`js/live-route.js`](js/live-route.js) · [`tools/datos.mjs`](tools/datos.mjs) | La DGT no admite peticiones desde el navegador (CORS): un workflow publica incidencias y ZBE cada 15 min en la rama `datos`. Los precios se piden directamente al Ministerio. Todo queda guardado para usarlo sin conexión. |
 
 Los paquetes se publican en **GitHub Pages**, el mismo origen que la app, porque los *Releases* de GitHub no permiten descargas desde el navegador (CORS). Cada archivo se trocea en partes de menos de 100 MB.
 

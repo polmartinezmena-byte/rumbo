@@ -29,7 +29,7 @@ export const norm = (s) =>
 
 export function fmtDist(m) {
   if (m < 100) return `${Math.max(0, Math.round(m / 10) * 10)} m`;
-  if (m < 1000) return `${Math.round(m / 50) * 50} m`;
+  if (m < 975) return `${Math.round(m / 50) * 50} m`;
   return `${(m / 1000).toFixed(m < 10000 ? 1 : 0).replace('.', ',')} km`;
 }
 

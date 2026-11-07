@@ -170,3 +170,35 @@ test('estimación propia sin datos oficiales: nunca llega a «riesgo alto»', ()
   ]), { s: 39.99, w: -3.01, n: 40.01, e: -2.99 });
   for (const r of g.risk) assert.ok(r / 255 <= 0.56, `riesgo ${r / 255}`);
 });
+
+import { penalties, incidentsOnRoute } from '../js/live-route.js';
+
+test('a pie se puede ir contra dirección; en coche no', () => {
+  const n = (id, lat, lon) => ({ type: 'node', id, lat, lon });
+  const g = build(fromOverpass([
+    n(1, 40.0, -3.0), n(2, 40.0, -2.998), n(3, 40.003, -2.999),
+    { type: 'way', id: 1, nodes: [2, 1], tags: { highway: 'residential', name: 'Sentido Único', oneway: 'yes' } },
+    { type: 'way', id: 2, nodes: [1, 3, 2], tags: { highway: 'residential', name: 'Rodeo' } },
+  ]), { s: 39.99, w: -3.01, n: 40.01, e: -2.99 });
+  const car = R.route(g, [40.0, -3.0], [40.0, -2.998]);
+  const foot = R.route(g, [40.0, -3.0], [40.0, -2.998], 0, { foot: true });
+  assert.ok(car.steps.some((s) => s.name === 'Rodeo'), 'el coche rodea');
+  assert.ok(foot.distance < car.distance, 'a pie va por el camino corto');
+  assert.ok(foot.duration > 100, 'a paso de peatón');
+});
+
+test('un corte de la DGT desvía la ruta y aparece como incidencia en ella', () => {
+  const n = (id, lat, lon) => ({ type: 'node', id, lat, lon });
+  const g = build(fromOverpass([
+    n(1, 40.0, -3.0), n(2, 40.0, -2.99), n(3, 40.004, -2.995),
+    { type: 'way', id: 1, nodes: [1, 2], tags: { highway: 'primary', name: 'N-1' } },
+    { type: 'way', id: 2, nodes: [1, 3, 2], tags: { highway: 'secondary', name: 'Variante' } },
+  ]), { s: 39.99, w: -3.01, n: 40.01, e: -2.98 });
+  const live = { version: 1, inc: { items: [{ k: 'cortada', road: 'N-1', from: [40.0, -2.999], to: [40.0, -2.991] }] }, zbe: null, fuel: null };
+  const pen = penalties(g, live, { sticker: '', avoidZbe: false, now: Date.now() });
+  const free = R.route(g, [40.0, -3.0], [40.0, -2.99]);
+  const cut = R.route(g, [40.0, -3.0], [40.0, -2.99], 0, { pen });
+  assert.ok(free.steps.every((s) => s.name !== 'Variante'), 'sin corte va por la N-1');
+  assert.ok(cut.steps.some((s) => s.name === 'Variante'), 'con el corte se desvía');
+  assert.equal(incidentsOnRoute(free, live).length, 1, 'la ruta normal detecta el corte');
+});

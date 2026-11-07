@@ -87,6 +87,7 @@ map.on('moveend', () => {
   updateEstimate();
   if ($('#risk-layer').checked && map.getZoom() >= 12) toggleRiskLayer(true);
   refreshCameras();
+  refreshLiveLayer();
 });
 
 const empty = { type: 'FeatureCollection', features: [] };
@@ -112,6 +113,7 @@ map.on('load', () => {
     paint: { 'line-color': ['case', ['get', 'hard'], '#7c3aed', '#f97316'], 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 3.5, 17, 10] } }, firstSymbol);
   // Radares en el mapa (visibles también con la voz apagada): señal de límite para los fijos
   // (aro rojo) y los de tramo (aro morado), y un semáforo para los semáforos con cámara.
+  addLiveLayers(firstSymbol);
   addCameraIcons();
   map.addSource('cameras', { type: 'geojson', data: empty });
   map.addLayer({ id: 'cameras-icon', type: 'symbol', source: 'cameras', minzoom: 11,
@@ -139,6 +141,7 @@ map.on('load', () => {
   drawAreas();
   drawFavs();
   if (store.get('riskLayer') && hasMaps()) toggleRiskLayer(true);
+  refreshLiveLayer();
 });
 
 // ------------------------------------------------------------------ estado
@@ -146,6 +149,8 @@ let catalog = {};           // mapas guardados en el dispositivo (worker)
 let regionIndex = store.get('regionIndex', null); // catálogo de comunidades publicado
 let origin = null, dest = null, route = null, nav = null, simTimer = null;
 let navPos = null, simAlong = 0; // última posición guiada y avance del simulador
+let walking = false;              // ruta a pie (volver al coche)
+let car = store.get('car', null); // dónde aparcaste
 let follow = true, gps = null, watchId = null, centerOnFix = false, wakeLock = null;
 let weather = cachedWeather();
 let favs = store.get('favs', []);
@@ -439,7 +444,8 @@ map.on('click', (e) => {
 function floodLevel() {
   if (settings.floodMode === 'off') return 0;
   if (settings.floodMode === 'on') return 2;
-  return weather && !weather.stale ? weather.level : 0;
+  // Automático: lo peor entre la lluvia donde estás y la prevista a lo largo de la ruta.
+  return Math.max(weather && !weather.stale ? weather.level : 0, routeRain?.level || 0);
 }
 
 async function refreshWeather() {
@@ -505,6 +511,127 @@ async function toggleRiskLayer(on, manual = false) {
 }
 $('#risk-layer').onchange = (e) => toggleRiskLayer(e.target.checked, true);
 
+// ================================================================== DATOS EN DIRECTO
+const STICKER_NAME = { 0: 'etiqueta 0', ECO: 'etiqueta ECO', C: 'etiqueta C', B: 'etiqueta B', A: 'un vehículo sin etiqueta' };
+const INC_TEXT = {
+  cortada: '⛔ Carretera cortada', calzada: '⛔ Calzada cortada', inundacion: '🌊 Inundación', accidente: '💥 Accidente',
+  carril: '🚧 Carril cortado', obras: '🚧 Obras', retencion: '🐢 Retención', meteo: '❄️ Meteorología adversa',
+  obstaculo: '⚠️ Obstáculo o vehículo averiado', otro: '⚠️ Incidencia',
+};
+const SCHEDULE = (z) => `${z.days === 'L' ? 'lunes a viernes' : z.days === 'F' ? 'fines de semana y festivos' : 'todos los días'}${z.times.some((t) => !/^00:00-23:5/.test(t)) ? ', ' + z.times.join(' y ') : ''}`;
+
+function note(cls, html) { return `<div class="live-note ${cls}">${html}</div>`; }
+
+function renderLiveNotes() {
+  if (!route) return;
+  const out = [];
+  // ZBE: agrupadas por nombre (una zona puede aparecer en varios trozos)
+  const byZone = new Map();
+  for (const z of route.zbe || []) {
+    const cur = byZone.get(z.name) || { ...z, len: 0 };
+    cur.len += z.end - z.start;
+    cur.banned ||= z.banned;
+    byZone.set(z.name, cur);
+  }
+  for (const z of byZone.values()) {
+    const name = esc(z.name.replace(/^ZBE\s*/i, ''));
+    const link = z.url ? ` · <a href="${esc(z.url)}" target="_blank" rel="noopener">ordenanza</a>` : '';
+    if (!settings.sticker) out.push(note('info', `🚫 Pasas por la <b>ZBE ${name}</b> (${SCHEDULE(z)}). Indica tu etiqueta en Ajustes para saber si puedes entrar${link}`));
+    else if (z.banned) out.push(note('bad', `⛔ Entras en la <b>ZBE ${name}</b> y con ${STICKER_NAME[settings.sticker]} <b>no puedes circular ahora</b> (${SCHEDULE(z)}). ${route.penalized ? 'No hay alternativa razonable o tu destino está dentro.' : ''}${link}`));
+    else if (z.restricted.includes(settings.sticker)) out.push(note('warn', `🚫 <b>ZBE ${name}</b>: con ${STICKER_NAME[settings.sticker]} solo está restringida ${SCHEDULE(z)}. Ahora puedes pasar${link}`));
+    else if (z.len > 50) out.push(note('good', `✅ Pasas por la <b>ZBE ${name}</b>: con ${STICKER_NAME[settings.sticker]} puedes circular${link}`));
+  }
+  // Incidencias de la DGT
+  const inc = route.incidents || [];
+  if (inc.length) {
+    const first = inc.slice(0, 3).map((x) => `${INC_TEXT[x.k] || INC_TEXT.otro}${x.road ? ` en ${esc(x.road)}` : ''} a ${fmtDist(x.along)}`).join('<br>');
+    out.push(note(inc.some((x) => /cortada|calzada|inundacion|accidente/.test(x.k)) ? 'warn' : 'info', `${first}${inc.length > 3 ? `<br>… y ${inc.length - 3} más` : ''}`));
+  }
+  // Lluvia en la ruta
+  if (routeRain && routeRain.mm >= 2) out.push(note(routeRain.level ? 'warn' : 'info', `🌧️ ${routeRain.level ? LEVELS[routeRain.level].label : 'Lluvia'} prevista en tu ruta a ${fmtDist(routeRain.along)} (${String(Math.round(routeRain.mm * 10) / 10).replace('.', ',')} mm/h)`));
+  // Gasolinera más barata
+  const f = route.fuel;
+  const box = $('#r-fuel-box');
+  box.hidden = !f?.list?.length;
+  if (f?.list?.length) {
+    const c = f.list[0];
+    const save = f.avg && f.avg - c.price >= 0.01 ? ` · ${((f.avg - c.price) * 50).toFixed(2).replace('.', ',')} € menos que la media en 50 l` : '';
+    out.push(note('good', `⛽ Más barata en tu ruta: <b>${esc(c.name || 'Gasolinera')}</b> <span class="price cheap">${c.price.toFixed(3).replace('.', ',')} €/l</span> a ${fmtDist(c.along)}${c.detour > 100 ? ` (desvío ${fmtDist(c.detour)})` : ''}${save}`));
+    $('#r-fuel-sum').textContent = `Gasolineras en tu ruta (${f.count}) · ${FUEL_LABEL[f.fuel]}`;
+    $('#r-fuel').innerHTML = '';
+    f.list.forEach((s, i) => {
+      const li = document.createElement('li');
+      li.innerHTML = `<span class="dir">⛽</span><div class="meta"><b>${esc(s.name || 'Gasolinera')}</b><small>${esc(s.addr)} · a ${fmtDist(s.along)}${s.detour > 100 ? ` · desvío ${fmtDist(s.detour)}` : ''}</small></div><span class="price${i === 0 ? ' cheap' : ''}">${s.price.toFixed(3).replace('.', ',')}</span>`;
+      li.onclick = () => setDest({ lat: s.lat, lon: s.lon, label: s.name || 'Gasolinera' });
+      $('#r-fuel').appendChild(li);
+    });
+    $('#r-fuel-src').textContent = `Precios oficiales del Ministerio para la Transición Ecológica · ${f.date}`;
+  }
+  $('#r-live').innerHTML = out.join('');
+}
+const FUEL_LABEL = { g95: 'Gasolina 95', g98: 'Gasolina 98', diesel: 'Diésel', dieselp: 'Diésel premium', glp: 'GLP' };
+
+// Capas del mapa: ZBE, incidencias de la DGT y precios de carburante.
+function addLiveLayers(firstSymbol) {
+  map.addSource('live-zbe', { type: 'geojson', data: empty });
+  map.addLayer({ id: 'live-zbe-fill', type: 'fill', source: 'live-zbe', minzoom: 9,
+    paint: { 'fill-color': ['case', ['get', 'banned'], '#dc2626', '#16a34a'], 'fill-opacity': ['case', ['all', ['get', 'banned'], ['get', 'active']], 0.12, 0.05] } }, firstSymbol);
+  map.addLayer({ id: 'live-zbe-line', type: 'line', source: 'live-zbe', minzoom: 9,
+    paint: { 'line-color': ['case', ['get', 'banned'], '#dc2626', '#16a34a'], 'line-width': 2, 'line-dasharray': [3, 2] } }, firstSymbol);
+  map.addSource('live-inc-lines', { type: 'geojson', data: empty });
+  map.addLayer({ id: 'live-inc-line', type: 'line', source: 'live-inc-lines', minzoom: 9,
+    paint: { 'line-color': ['match', ['get', 'k'], 'inundacion', '#2563eb', '#dc2626'], 'line-width': ['interpolate', ['linear'], ['zoom'], 9, 2, 15, 6], 'line-dasharray': [1, 1] } });
+  const icon = (emoji, bg) => {
+    const S = 40, R = 2, c = document.createElement('canvas');
+    c.width = c.height = S * R;
+    const x = c.getContext('2d');
+    x.scale(R, R);
+    x.beginPath(); x.arc(20, 20, 17, 0, Math.PI * 2); x.fillStyle = bg; x.fill(); x.lineWidth = 3; x.strokeStyle = '#fff'; x.stroke();
+    x.font = '19px system-ui, "Segoe UI Emoji", "Apple Color Emoji", sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.fillText(emoji, 20, 21);
+    return { width: S * R, height: S * R, data: x.getImageData(0, 0, S * R, S * R).data };
+  };
+  const ICONS = { cortada: ['⛔', '#fee2e2'], calzada: ['⛔', '#fee2e2'], inundacion: ['🌊', '#dbeafe'], accidente: ['💥', '#fde68a'], carril: ['🚧', '#fef3c7'], obras: ['🚧', '#fef3c7'], retencion: ['🐢', '#ffedd5'], meteo: ['❄️', '#e0f2fe'], obstaculo: ['⚠️', '#fef3c7'], otro: ['⚠️', '#f1f5f9'] };
+  for (const [k, [e, bg]] of Object.entries(ICONS)) map.addImage('inc-' + k, icon(e, bg), { pixelRatio: 2 });
+  map.addSource('live-inc', { type: 'geojson', data: empty });
+  map.addLayer({ id: 'live-inc-icon', type: 'symbol', source: 'live-inc', minzoom: 8,
+    layout: { 'icon-image': ['concat', 'inc-', ['get', 'k']], 'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.5, 14, 0.85], 'icon-allow-overlap': true, 'icon-pitch-alignment': 'viewport' } });
+  map.addSource('live-fuel', { type: 'geojson', data: empty });
+  map.addLayer({ id: 'live-fuel-label', type: 'symbol', source: 'live-fuel', minzoom: 12,
+    layout: { 'text-field': ['concat', ['get', 'p'], ' €'], 'text-size': 12, 'text-font': ['Noto Sans Bold'], 'text-allow-overlap': false, 'text-offset': [0, -1.2] },
+    paint: { 'text-color': ['match', ['get', 'tier'], 0, '#15803d', 2, '#b91c1c', '#334155'], 'text-halo-color': '#fff', 'text-halo-width': 2 } });
+  map.on('click', 'live-inc-icon', (e) => {
+    const p = e.features[0].properties;
+    toast(`${INC_TEXT[p.k] || INC_TEXT.otro}${p.road ? ' en ' + p.road : ''} · DGT`, 4000);
+  });
+}
+
+let liveTimer;
+function refreshLiveLayer() {
+  clearTimeout(liveTimer);
+  liveTimer = setTimeout(async () => {
+    if (!mapReady || map.getZoom() < 8) return;
+    const L = await call('liveLayer', { bbox: visibleBbox(), fuel: settings.fuel, sticker: settings.sticker });
+    map.getSource('live-zbe').setData(L.zbe);
+    map.getSource('live-inc').setData(settings.showIncidents ? L.inc : empty);
+    map.getSource('live-inc-lines').setData(settings.showIncidents ? L.incLines : empty);
+    map.getSource('live-fuel').setData(settings.showFuel && !nav ? L.fuel : empty);
+  }, 300);
+}
+
+async function refreshLive(force = false) {
+  if (!navigator.onLine) return;
+  try {
+    const r = await call('liveRefresh', { force });
+    if (r.changed) {
+      refreshLiveLayer();
+      // Con datos nuevos (un corte, una ZBE) la ruta puede cambiar.
+      if (dest && !walking) computeRoute({ fit: false });
+    }
+  } catch { /* sin conexión o fuente caída: se usan los datos guardados */ }
+}
+setInterval(refreshLive, 10 * 60e3);
+
 // ================================================================== RADARES
 // Iconos dibujados en canvas (no dependen de fuentes ni de archivos externos: funcionan sin conexión).
 function addCameraIcons() {
@@ -544,8 +671,9 @@ function refreshCameras() {
 }
 
 // ================================================================== RUTAS
-async function computeRoute({ fit = true } = {}) {
+async function computeRoute({ fit = true, foot = walking } = {}) {
   if (!dest) return;
+  walking = foot;
   // Navegando, la ruta nueva sale de donde vas (GPS o posición simulada), no del punto de salida.
   const from = nav ? (!simTimer && gps) || navPos || origin || gps : origin || gps;
   if (!hasMaps()) {
@@ -560,7 +688,10 @@ async function computeRoute({ fit = true } = {}) {
   }
   try {
     const t0 = performance.now();
-    route = await call('route', { from: [from.lat, from.lon], to: [dest.lat, dest.lon], level: floodLevel(), avoidTolls: settings.avoidTolls });
+    route = await call('route', {
+      from: [from.lat, from.lon], to: [dest.lat, dest.lon], level: foot ? 0 : floodLevel(), avoidTolls: settings.avoidTolls,
+      opts: { sticker: settings.sticker, avoidZbe: settings.avoidZbe, fuel: settings.fuel, now: Date.now(), foot },
+    });
     route.ms = Math.round(performance.now() - t0);
   } catch (e) {
     toast(e.message, 5000);
@@ -580,6 +711,37 @@ async function computeRoute({ fit = true } = {}) {
     route.coords.forEach((c) => b.extend(c));
     map.fitBounds(b, { padding: { top: 110, bottom: 300, left: 40, right: 40 }, maxZoom: 17 });
   }
+  if (!foot) checkRainAlongRoute(route);
+}
+
+// ------------------------------------------------------------------ lluvia a lo largo de la ruta
+// Open-Meteo admite varias coordenadas en una petición: se mira cada ~10 km del trayecto.
+let routeRain = null;
+async function checkRainAlongRoute(r) {
+  if (!navigator.onLine || settings.floodMode !== 'auto') { routeRain = null; return; }
+  const pts = [];
+  const step = Math.max(8000, r.distance / 25);
+  for (let a = 0; a <= r.distance; a += step) pts.push({ along: a, ...pointAt(r, a) });
+  pts.push({ along: r.distance, ...pointAt(r, r.distance) });
+  try {
+    const q = `latitude=${pts.map((p) => p.lat.toFixed(3)).join(',')}&longitude=${pts.map((p) => p.lon.toFixed(3)).join(',')}`;
+    const res = await (await fetch(`https://api.open-meteo.com/v1/forecast?${q}&hourly=precipitation&forecast_hours=4&timezone=auto`)).json();
+    const arr = Array.isArray(res) ? res : [res];
+    let worst = { mm: 0, along: 0 };
+    arr.forEach((x, i) => {
+      const mm = Math.max(0, ...(x.hourly?.precipitation || []).map((v) => v ?? 0));
+      if (mm > worst.mm) worst = { mm, along: pts[i].along };
+    });
+    const level = worst.mm >= 20 ? 2 : worst.mm >= 7 ? 1 : 0;
+    const before = floodLevel();
+    routeRain = { ...worst, level, at: Date.now() };
+    if (route === r) renderLiveNotes();
+    // Si en la ruta va a llover más fuerte que donde estás, se recalcula con la ruta segura.
+    if (floodLevel() > before && route === r) {
+      toast(`${LEVELS[level].label} en tu ruta a ${fmtDist(worst.along)}: recalculando una ruta más segura…`, 6000);
+      computeRoute({ fit: false });
+    }
+  } catch { /* sin datos de lluvia en ruta: se sigue con los de tu posición */ }
 }
 
 function drawRoute() {
@@ -621,7 +783,7 @@ function floodNote(r) {
 }
 
 function showRouteSheet() {
-  $('#r-time').textContent = fmtTime(route.duration);
+  $('#r-time').textContent = (route.foot ? '🚶 ' : '') + fmtTime(route.duration);
   $('#r-dist').textContent = `· ${fmtDist(route.distance)}`;
   $('#r-to').textContent = `Hacia ${dest.label} · calculada en el dispositivo en ${route.ms} ms`;
   const note = floodNote(route);
@@ -656,6 +818,7 @@ function showRouteSheet() {
     li.innerHTML = `<span class="maneuver">${maneuverSvg(s)}</span><div><span>${esc(s.text)}</span><small>${s.type === 'arrive' ? '' : fmtDist(s.dist)}</small></div>`;
     ol.appendChild(li);
   }
+  renderLiveNotes();
   setSheet('route');
 }
 
@@ -668,7 +831,7 @@ $$('#r-toll button').forEach((b) => (b.onclick = () => {
 
 $('#btn-close-route').onclick = clearRoute;
 function clearRoute() {
-  route = null; dest = null; origin = null;
+  route = null; dest = null; origin = null; walking = false; routeRain = null;
   destMarker.remove();
   originMarker.remove();
   drawRoute();
@@ -701,7 +864,17 @@ function startNav(simulate) {
       origin = null;
       computeRoute({ fit: false });
     },
-    onArrive: () => { toast('Has llegado a tu destino 🎉'); setTimeout(stopNav, 2500); },
+    onArrive: () => {
+      if (walking) {
+        toast('Has llegado a tu coche 🚗');
+        car = null;
+        store.set('car', null);
+      } else {
+        saveCar();
+        toast('Has llegado a tu destino 🎉 · Guardado dónde aparcas (🅿️ en Favoritos)', 5000);
+      }
+      setTimeout(stopNav, 2500);
+    },
   });
 
   if (simulate) {
@@ -746,6 +919,14 @@ function renderNav(s) {
   $('#b-radar').hidden = !radarTxt;
   $('#b-radar').textContent = radarTxt;
   $('#b-radar').classList.toggle('over', !!over);
+  const lv = s.live;
+  $('#b-live').hidden = !lv;
+  if (lv) {
+    $('#b-live').textContent = lv.kind === 'inc'
+      ? `${INC_TEXT[lv.k] || INC_TEXT.otro}${lv.road ? ' · ' + lv.road : ''} · ${fmtDist(lv.dist)}`
+      : lv.banned ? `⛔ ZBE ${lv.name}${lv.inside ? '' : ' · ' + fmtDist(lv.dist)} · no puedes entrar` : `🚫 ZBE ${lv.name} · puedes circular`;
+    $('#b-live').classList.toggle('bad', !!lv.bad);
+  }
   $('#n-eta').textContent = fmtClock(new Date(Date.now() + s.remTime * 1000));
   $('#n-time').textContent = fmtTime(s.remTime);
   $('#n-dist').textContent = fmtDist(s.remaining);
@@ -758,6 +939,8 @@ function renderNav(s) {
 }
 
 function stopNav() {
+  // Si terminas cerca del destino (sin llegar del todo), también se guarda dónde aparcas.
+  if (nav && !walking && dest && navPos && haversine(navPos.lat, navPos.lon, dest.lat, dest.lon) < 250) saveCar();
   navPos = null;
   clearInterval(simTimer);
   simTimer = null;
@@ -918,7 +1101,36 @@ function addFav(p, suggested) {
   drawFavs();
   toast(`★ «${name.trim()}» guardado`);
 }
+// ------------------------------------------------------------------ ¿dónde aparqué?
+function saveCar() {
+  const p = (!simTimer && gps) || navPos || (dest && { lat: dest.lat, lon: dest.lon });
+  if (!p) return;
+  car = { lat: p.lat, lon: p.lon, at: Date.now(), label: dest?.label || '' };
+  store.set('car', car);
+}
+
+function renderCar() {
+  const box = $('#car');
+  box.hidden = !car;
+  if (!car) return;
+  const mins = Math.round((Date.now() - car.at) / 60000);
+  const ago = mins < 60 ? `hace ${Math.max(1, mins)} min` : mins < 1440 ? `hace ${Math.round(mins / 60)} h` : `hace ${Math.round(mins / 1440)} días`;
+  const d = gps ? ` · a ${fmtDist(haversine(gps.lat, gps.lon, car.lat, car.lon))}` : '';
+  box.innerHTML = `<div><b>🅿️ Tu coche</b><br><small class="muted">Aparcado ${ago}${car.label ? ' cerca de ' + esc(car.label) : ''}${d}</small></div>
+    <div class="row"><button class="btn primary grow" id="car-walk">🚶 Llévame a pie</button><button class="btn" id="car-show">Ver</button><button class="btn" id="car-forget">Olvidar</button></div>`;
+  $('#car-walk').onclick = () => {
+    origin = null;
+    dest = { lat: car.lat, lon: car.lon, label: 'Tu coche' };
+    destMarker.setLngLat([car.lon, car.lat]).addTo(map);
+    if (!gps) { startGps(); toast('Esperando tu posición para guiarte a pie…'); }
+    computeRoute({ foot: true });
+  };
+  $('#car-show').onclick = () => { setSheet(null); map.flyTo({ center: [car.lon, car.lat], zoom: 17 }); };
+  $('#car-forget').onclick = () => { car = null; store.set('car', null); renderCar(); };
+}
+
 function renderFavs() {
+  renderCar();
   const ul = $('#favs');
   ul.innerHTML = favs.length ? '' : '<li class="muted">Guarda sitios tocando el mapa o con la ☆ de una ruta.</li>';
   for (const f of favs) {
@@ -1023,7 +1235,8 @@ onSettingChange((key) => {
   if (key === 'theme') applyTheme();
   if (key === 'emergencyNumber') renderEmergencyNumber();
   if (key === 'floodMode') renderRain();
-  if ((key === 'avoidTolls' || key === 'floodMode') && dest && sheetNow !== 'rain') computeRoute({ fit: false });
+  if (['avoidTolls', 'floodMode', 'sticker', 'avoidZbe', 'fuel'].includes(key) && dest && sheetNow !== 'rain') computeRoute({ fit: false });
+  if (['sticker', 'fuel', 'showFuel', 'showIncidents'].includes(key)) refreshLiveLayer();
 });
 
 // ================================================================== BIENVENIDA
@@ -1087,6 +1300,8 @@ $('#btn-replay-onboarding').onclick = () => { setSheet(null); showOnboarding(); 
 call('init').then((c) => {
   catalog = c;
   drawAreas();
+  refreshLiveLayer(); // con los datos en directo guardados, antes de actualizarlos
+  refreshLive();
   if (store.get('riskLayer')) toggleRiskLayer(true);
   updateNet();
   if (!hasMaps() && store.get('onboarded')) setTimeout(() => toast('Descarga tu comunidad (⬇) para usar Rumbo sin conexión.', 6000), 1200);

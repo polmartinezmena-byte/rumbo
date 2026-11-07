@@ -40,6 +40,12 @@ export function speak(text) {
 
 const lowerFirst = (s) => s.charAt(0).toLowerCase() + s.slice(1);
 
+const INC_SPEECH = {
+  cortada: 'carretera cortada', calzada: 'calzada cortada', inundacion: 'inundación', accidente: 'accidente',
+  carril: 'carril cortado', obras: 'obras', retencion: 'retención', meteo: 'meteorología adversa',
+  obstaculo: 'obstáculo en la vía', otro: 'incidencia',
+};
+
 export class Navigator {
   constructor(route, cb) {
     this.cb = cb;
@@ -167,6 +173,33 @@ export class Navigator {
       }
     });
 
+    // Incidencias de la DGT más adelante (aviso visual a 2 km, por voz a 1 km).
+    let live = null;
+    const incs = this.r.incidents || [];
+    for (let i = 0; i < incs.length; i++) {
+      const ahead = incs[i].along - p.along;
+      if (ahead < -30) continue;
+      if (ahead > 2000) break;
+      const it = incs[i];
+      live = { kind: 'inc', k: it.k, road: it.road, dist: Math.max(0, ahead), bad: /cortada|calzada|inundacion|accidente/.test(it.k) };
+      if (ahead <= 1000 && !this.spoken.has('i' + i)) {
+        this.spoken.add('i' + i);
+        speak(`Atención: ${INC_SPEECH[it.k] || 'incidencia'}${it.road ? ` en ${it.road}` : ''} a ${fmtDistSpeech(Math.max(50, ahead))}`);
+      }
+      break;
+    }
+    // Zonas de Bajas Emisiones: aviso al acercarte y mientras estás dentro.
+    (this.r.zbe || []).forEach((z, i) => {
+      const ahead = z.start - p.along;
+      const inside = p.along >= z.start && p.along <= z.end;
+      if (!(inside || (ahead > 0 && ahead <= 500))) return;
+      if (!live || z.banned) live = { kind: 'zbe', name: z.name.replace(/^ZBE\s*/i, ''), banned: z.banned, inside, dist: Math.max(0, ahead), bad: z.banned };
+      if (z.banned && !this.spoken.has('z' + i)) {
+        this.spoken.add('z' + i);
+        speak(`Atención: vas a entrar en la zona de bajas emisiones ${z.name.replace(/^ZBE\s*/i, '')}. Con tu etiqueta no puedes circular ahora.`);
+      }
+    });
+
     // Límite de la vía actual y aviso si lo superas durante varios segundos (máx. uno cada 45 s).
     const limit = this.r.lim?.[p.j] || 0;
     const limitInferred = !!this.r.limInf?.[p.j];
@@ -194,6 +227,7 @@ export class Navigator {
       speed,
       limit,
       limitInferred,
+      live,
     });
 
     if (remaining < 20) {

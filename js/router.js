@@ -93,15 +93,31 @@ class Heap {
   }
 }
 
-function astar(G, s, t, level, hardPenalty, avoidTolls = false) {
+const WALK = 1.3; // m/s a pie
+
+// Grafo inverso (para ir a pie también contra dirección). Se calcula una vez y queda en memoria.
+function reverse(G) {
+  if (G._rev) return G._rev;
+  const n = G.la.length, m = G.tgt.length;
+  const roff = new Int32Array(n + 1);
+  for (let e = 0; e < m; e++) roff[G.tgt[e] + 1]++;
+  for (let i = 0; i < n; i++) roff[i + 1] += roff[i];
+  const pos = roff.slice(0, n), rsrc = new Int32Array(m), redge = new Int32Array(m);
+  for (let u = 0; u < n; u++) for (let e = G.off[u]; e < G.off[u + 1]; e++) { const p = pos[G.tgt[e]]++; rsrc[p] = u; redge[p] = e; }
+  G._rev = { roff, rsrc, redge };
+  return G._rev;
+}
+
+function astar(G, s, t, level, hardPenalty, avoidTolls = false, pen = null, foot = false) {
   const { la, lo, off, tgt, wt, risk, hard, toll } = G;
-  const tollOn = avoidTolls && toll;
+  const tollOn = avoidTolls && toll && !foot;
+  const rev = foot ? reverse(G) : null;
   const n = la.length;
   const g = new Float64Array(n).fill(Infinity);
   const prevN = new Int32Array(n).fill(-1);
   const prevE = new Int32Array(n).fill(-1);
   const closed = new Uint8Array(n);
-  const inv = 1 / G.maxMs;
+  const inv = 1 / (foot ? WALK : G.maxMs);
   const k = K[level] || 0;
   const hasRisk = level > 0 && risk;
   const tla = la[t], tlo = lo[t];
@@ -113,10 +129,16 @@ function astar(G, s, t, level, hardPenalty, avoidTolls = false) {
     if (closed[u]) continue;
     closed[u] = 1;
     if (u === t) break;
-    for (let e = off[u]; e < off[u + 1]; e++) {
-      const v = tgt[e];
+    // A pie: también se puede recorrer un tramo en sentido contrario (aristas del grafo inverso).
+    const nOut = off[u + 1] - off[u];
+    const nIn = foot ? rev.roff[u + 1] - rev.roff[u] : 0;
+    for (let q = 0; q < nOut + nIn; q++) {
+      const e = q < nOut ? off[u] + q : rev.redge[rev.roff[u] + q - nOut];
+      const v = q < nOut ? tgt[e] : rev.rsrc[rev.roff[u] + q - nOut];
       if (closed[v]) continue;
-      let c = wt[e];
+      if (foot && G.lim && G.lim[e] >= 90) continue; // autopistas y autovías: no se camina
+      let c = foot ? G.dist[e] / WALK : wt[e];
+      if (pen && !foot) c *= pen[e];
       if (hasRisk) {
         const r = risk[e] / 255;
         c *= 1 + k * r * r;
@@ -137,7 +159,7 @@ function astar(G, s, t, level, hardPenalty, avoidTolls = false) {
   return { path: path.reverse(), edges: edges.reverse() };
 }
 
-export function route(G, from, to, level = 0, { avoidTolls = false } = {}) {
+export function route(G, from, to, level = 0, { avoidTolls = false, pen = null, foot = false } = {}) {
   const S = nearest(G, from[0], from[1]);
   const T = nearest(G, to[0], to[1]);
   if (S.d > 1500) throw new Error('El punto de salida está fuera de la zona descargada');
@@ -145,11 +167,15 @@ export function route(G, from, to, level = 0, { avoidTolls = false } = {}) {
   if (S.i === T.i) throw new Error('El origen y el destino están en el mismo punto');
   if (level > 0 && !G.risk) level = 0; // zona descargada con una versión antigua
 
-  let res = astar(G, S.i, T.i, level, HARD[level], avoidTolls);
+  if (foot) level = 0;
+  let res = astar(G, S.i, T.i, level, HARD[level], avoidTolls, pen, foot);
   let forcedHard = false;
-  if (!res && level === 2) { res = astar(G, S.i, T.i, level, 200, avoidTolls); forcedHard = true; }
+  if (!res && level === 2) { res = astar(G, S.i, T.i, level, 200, avoidTolls, pen, foot); forcedHard = true; }
   if (!res) throw new Error('No hay ninguna ruta posible entre esos dos puntos');
-  const out = describe(G, res.path, res.edges);
+  const out = describe(G, res.path, res.edges, foot);
+  out.path = res.path;
+  out.foot = foot;
+  if (pen) out.penalized = res.edges.some((e) => pen[e] >= 100);
   out.level = level;
   out.forcedHard = forcedHard;
   out.avoidTolls = avoidTolls;
@@ -157,13 +183,13 @@ export function route(G, from, to, level = 0, { avoidTolls = false } = {}) {
   return out;
 }
 
-function describe(G, path, edges) {
+function describe(G, path, edges, foot = false) {
   const { lo, la, wt, risk, hard } = G;
-  const { steps, cum } = buildSteps(G, path, edges);
+  const { steps, cum } = buildSteps(G, path, edges, foot);
   let duration = 0, tollLen = 0;
   const segRisk = new Array(edges.length);
   for (let i = 0; i < edges.length; i++) {
-    duration += wt[edges[i]];
+    duration += foot ? G.dist[edges[i]] / WALK : wt[edges[i]];
     if (G.toll?.[edges[i]]) tollLen += G.dist[edges[i]];
     segRisk[i] = risk ? (hard[edges[i]] ? 1 : Math.round((risk[edges[i]] / 255) * 100) / 100) : 0;
   }
@@ -203,8 +229,10 @@ function turnText(a) {
   return { mod: 'sharp', angle: a > 0 ? 135 : -135, txt: `Gira bruscamente a la ${side}` };
 }
 
-function buildSteps(G, path, edges) {
-  const { la, lo, nm, rb, names, off, dist } = G;
+function buildSteps(G, path, edges, foot = false) {
+  const { la, lo, nm, names, off, dist } = G;
+  // A pie las rotondas no se anuncian como tales.
+  const rb = foot ? new Uint8Array(G.rb.length) : G.rb;
   const L = path.length;
   const cum = new Float64Array(L);
   for (let i = 1; i < L; i++) cum[i] = cum[i - 1] + dist[edges[i - 1]];

@@ -1,0 +1,45 @@
+name: Datos en directo (DGT)
+
+# Incidencias de tráfico cada 15 minutos y Zonas de Bajas Emisiones una vez al día, desde el
+# Punto de Acceso Nacional de la DGT. Se publican en la rama «datos» (un único commit que se
+# reemplaza cada vez, para no hacer crecer el historial). La app los lee de raw.githubusercontent.com.
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: datos
+  cancel-in-progress: false
+
+jobs:
+  datos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Recuperar las ZBE publicadas (se regeneran una vez al día)
+        run: |
+          mkdir -p out
+          curl -sf -o out/zbe.json "https://raw.githubusercontent.com/${{ github.repository }}/datos/zbe.json" || true
+      - name: Generar datos
+        run: |
+          if [ ! -s out/zbe.json ] || { [ "$(date -u +%H)" = "04" ] && [ "$(date -u +%M)" -lt 15 ]; }; then
+            node tools/datos.mjs out --zbe
+          else
+            node tools/datos.mjs out
+          fi
+      - name: Publicar en la rama datos
+        run: |
+          cd out
+          git init -q -b datos
+          git add incidencias.json zbe.json
+          git -c user.name="rumbo-datos" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -qm "Datos DGT $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" datos

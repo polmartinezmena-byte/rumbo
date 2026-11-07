@@ -10,6 +10,8 @@ import { floodGrid } from './flood-zones.js';
 import { deserialize } from './pack.js';
 import * as R from './router.js';
 import { camerasLayer } from './radars.js';
+import { live, loadCached, refresh as refreshLive, summary as liveSummary } from './live.js';
+import { penalties, incidentsOnRoute, zbeOnRoute, fuelOnRoute, liveLayer } from './live-route.js';
 
 const OVERPASS = [
   'https://overpass-api.de/api/interpreter',
@@ -31,7 +33,11 @@ self.onmessage = async (e) => {
       case 'download': result = await downloadArea(e.data.bbox, id); break;
       case 'installPack': result = await installPack(e.data, id); break;
       case 'remove': result = await remove(e.data.key); break;
-      case 'route': result = await routeAny(e.data.from, e.data.to, e.data.level || 0, e.data.avoidTolls); break;
+      case 'route': result = await routeAny(e.data.from, e.data.to, e.data.level || 0, e.data.avoidTolls, e.data.opts || {}); break;
+      case 'liveRefresh': result = await refreshLive(e.data.force, (m) => progress(id, m, 0.5)); break;
+      case 'liveSummary': result = liveSummary(); break;
+      case 'liveLayer': result = liveLayer(live, e.data.bbox, e.data.fuel, e.data.sticker); break;
+      case 'fuelNear': result = fuelNear(e.data.near, e.data.fuel); break;
       case 'cameras': result = await camerasIn(e.data.bbox); break;
       case 'search': result = await searchAll(e.data.q, e.data.near); break;
       case 'nearby': result = await nearbyAll(e.data.near, e.data.cat); break;
@@ -47,6 +53,7 @@ self.onmessage = async (e) => {
 // ------------------------------------------------------------------ almacén
 async function init() {
   catalog = (await db.get('catalog')) || {};
+  await loadCached().catch(() => {});
   // Migración desde la v1 (un único grafo en la clave "graph").
   const old = await db.get('graph');
   if (old) {
@@ -204,19 +211,27 @@ async function installPack({ key, urls, size }, id) {
 }
 
 // ------------------------------------------------------------------ consultas
-async function routeAny(from, to, level, avoidTolls = false) {
+async function routeAny(from, to, level, avoidTolls = false, opts = {}) {
+  const now = opts.now || Date.now();
+  const foot = !!opts.foot;
   const keys = candidates([from, to]);
   if (!keys.length) throw new Error('Origen o destino fuera de tus mapas descargados. Descarga la zona o la comunidad.');
   let lastErr;
   for (const key of keys) {
     try {
       const G = await graph(key);
-      const safe = R.route(G, from, to, level, { avoidTolls });
+      const pen = foot ? null : penalties(G, live, { sticker: opts.sticker || '', avoidZbe: opts.avoidZbe !== false, now });
+      const safe = R.route(G, from, to, level, { avoidTolls, pen, foot });
       safe.graph = key;
+      safe.incidents = incidentsOnRoute(safe, live);
+      safe.zbe = zbeOnRoute(G, safe, safe.path, live, { sticker: opts.sticker || '', now });
+      safe.fuel = foot ? null : fuelOnRoute(safe, live, opts.fuel);
+      delete safe.path;
       safe.flood = !!G.risk;
       if (level > 0 && G.risk) {
         // Compara con la ruta más rápida para explicar qué se evita y cuánto cuesta.
-        const fast = R.route(G, from, to, 0, { avoidTolls });
+        const fast = R.route(G, from, to, 0, { avoidTolls, pen });
+        delete fast.path;
         safe.compare = {
           fastDuration: fast.duration,
           fastZones: fast.riskRuns.length,
@@ -226,7 +241,7 @@ async function routeAny(from, to, level, avoidTolls = false) {
       }
       // Alternativa con / sin peaje para poder elegir.
       if (G.toll) {
-        const alt = avoidTolls ? R.route(G, from, to, level) : safe.tollLen > 0 ? R.route(G, from, to, level, { avoidTolls: true }) : null;
+        const alt = foot ? null : avoidTolls ? R.route(G, from, to, level, { pen }) : safe.tollLen > 0 ? R.route(G, from, to, level, { avoidTolls: true, pen }) : null;
         if (alt && Math.abs(alt.tollLen - safe.tollLen) > 50) safe.tollAlt = { duration: alt.duration, distance: alt.distance, tollLen: alt.tollLen };
       }
       return safe;
@@ -285,4 +300,19 @@ async function officialRadars(b) {
   } catch {
     return [];
   }
+}
+
+// Gasolineras más baratas cerca de un punto (radio 5 km), para el botón SOS.
+function fuelNear(near, fuel) {
+  const F = live.fuel;
+  if (!F || !F.prices[fuel]) return null;
+  const p = F.prices[fuel];
+  let best = null;
+  for (let i = 0; i < F.la.length; i++) {
+    if (!(p[i] > 0)) continue;
+    const d = Math.hypot((F.la[i] - near[0]) * 111320, (F.lo[i] - near[1]) * 111320 * Math.cos((near[0] * Math.PI) / 180));
+    if (d > 5000) continue;
+    if (!best || d < best.dist) best = { dist: d, price: p[i], name: F.name[i], lat: F.la[i], lon: F.lo[i], addr: F.addr[i] };
+  }
+  return best;
 }
