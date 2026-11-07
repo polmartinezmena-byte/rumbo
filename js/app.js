@@ -17,6 +17,15 @@ const REGION_MAX_Z = (r) => (r.main ? 10 : MAX_ZOOM); // España entera: mapa ge
 // ------------------------------------------------------------------ service worker
 // En la app nativa los archivos ya están en el dispositivo: no hace falta service worker.
 if ('serviceWorker' in navigator && !NATIVE) navigator.serviceWorker.register('./sw.js').catch((e) => console.warn('SW', e));
+// Cuando se instala una versión nueva, se recarga una vez para usarla ya (nunca en mitad de una ruta).
+if ('serviceWorker' in navigator && !NATIVE) {
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || nav || sessionStorage.getItem('rumbo:swReload')) return;
+    sessionStorage.setItem('rumbo:swReload', '1');
+    location.reload();
+  });
+}
 
 // ------------------------------------------------------------------ worker de rutas (RPC)
 const worker = new Worker(new URL('./graph-worker.js', import.meta.url), { type: 'module' });
@@ -129,12 +138,18 @@ map.on('load', () => {
   map.addSource('cameras', { type: 'geojson', data: empty });
   map.addLayer({ id: 'cameras-icon', type: 'symbol', source: 'cameras', minzoom: 11,
     layout: {
-      'icon-image': ['match', ['get', 'kind'], 3, 'cam-light', 1, 'cam-section', 2, 'cam-section', 'cam-fixed'],
-      'icon-size': ['interpolate', ['linear'], ['zoom'], 11, 0.45, 15, 0.75, 18, 1],
+      'icon-image': ['case',
+        ['==', ['get', 'kind'], 3], 'cam-light',
+        ['any', ['==', ['get', 'kind'], 1], ['==', ['get', 'kind'], 2]], 'cam-section',
+        ['>', ['to-number', ['get', 'speed'], 0], 0], 'cam-fixed',
+        'cam-fixed-nospeed'],
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 11, 0.4, 15, 0.62, 18, 0.85],
       'icon-allow-overlap': true, 'icon-ignore-placement': true,
       'icon-pitch-alignment': 'viewport', 'icon-rotation-alignment': 'viewport',
+      // El límite va dentro de la señal (centro de la señal desplazado respecto al del icono).
       'text-field': ['case', ['all', ['!=', ['get', 'kind'], 3], ['>', ['to-number', ['get', 'speed'], 0], 0]], ['to-string', ['get', 'speed']], ''],
-      'text-size': ['interpolate', ['linear'], ['zoom'], 11, 8, 15, 12, 18, 16],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 11, 7, 15, 11, 18, 15],
+      'text-offset': ['case', ['any', ['==', ['get', 'kind'], 1], ['==', ['get', 'kind'], 2]], ['literal', [-0.3, 0]], ['literal', [-0.3, 0.3]]],
       'text-font': ['Noto Sans Bold'], 'text-allow-overlap': true, 'text-ignore-placement': true,
       'text-pitch-alignment': 'viewport',
     },
@@ -686,32 +701,74 @@ setInterval(refreshLive, 10 * 60e3);
 
 // ================================================================== RADARES
 // Iconos dibujados en canvas (no dependen de fuentes ni de archivos externos: funcionan sin conexión).
+// Iconos de radar (los mismos en el mapa, el banner de navegación y el resumen de la ruta):
+//   · radar fijo: señal de velocidad máxima con una cámara de fotos encima
+//   · radar de tramo: señal con aro morado y la palabra «TRAMO»
+//   · semáforo con cámara: semáforo en rojo con una cámara al lado
+const S_ICON = 64;
+function drawCamera(x, cx, cy, w, body = '#111827', lens = '#fff') {
+  const h = w * 0.62;
+  x.save();
+  x.fillStyle = body;
+  x.beginPath(); x.roundRect(cx - w / 2, cy - h / 2, w, h, w * 0.14); x.fill();
+  x.beginPath(); x.roundRect(cx - w * 0.22, cy - h / 2 - w * 0.13, w * 0.3, w * 0.16, w * 0.05); x.fill(); // visor
+  x.fillStyle = lens;
+  x.beginPath(); x.arc(cx, cy + w * 0.02, h * 0.32, 0, Math.PI * 2); x.fill();
+  x.fillStyle = body;
+  x.beginPath(); x.arc(cx, cy + w * 0.02, h * 0.18, 0, Math.PI * 2); x.fill();
+  x.fillStyle = '#facc15'; // flash
+  x.beginPath(); x.arc(cx + w * 0.33, cy - h * 0.25, w * 0.06, 0, Math.PI * 2); x.fill();
+  x.restore();
+}
+function badge(x, cx, cy, r) { // círculo blanco con borde para la cámara
+  x.beginPath(); x.arc(cx, cy, r, 0, Math.PI * 2); x.fillStyle = '#fff'; x.fill();
+  x.lineWidth = 2; x.strokeStyle = '#111827'; x.stroke();
+  drawCamera(x, cx, cy + 1, r * 1.25);
+}
+const ICON_DRAW = {
+  'cam-fixed': (x) => { // señal de límite (el número lo pone el mapa) + cámara
+    x.beginPath(); x.arc(28, 36, 22, 0, Math.PI * 2); x.fillStyle = '#fff'; x.fill();
+    x.lineWidth = 6.5; x.strokeStyle = '#dc2626'; x.stroke();
+    badge(x, 50, 13, 12);
+  },
+  'cam-fixed-nospeed': (x) => { // sin límite conocido: cámara grande sobre rojo
+    x.beginPath(); x.arc(32, 32, 26, 0, Math.PI * 2); x.fillStyle = '#dc2626'; x.fill();
+    x.lineWidth = 3; x.strokeStyle = '#fff'; x.stroke();
+    drawCamera(x, 32, 33, 30, '#fff', '#dc2626');
+  },
+  'cam-section': (x) => {
+    x.beginPath(); x.arc(28, 32, 20, 0, Math.PI * 2); x.fillStyle = '#fff'; x.fill();
+    x.lineWidth = 6; x.strokeStyle = '#7c3aed'; x.stroke();
+    badge(x, 50, 11, 11);
+    x.fillStyle = '#7c3aed'; x.beginPath(); x.roundRect(6, 50, 44, 13, 6); x.fill();
+    x.fillStyle = '#fff'; x.font = 'bold 10px system-ui, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.fillText('TRAMO', 28, 57);
+  },
+  'cam-light': (x) => { // semáforo con la luz roja encendida + cámara
+    x.fillStyle = '#111827'; x.strokeStyle = '#fff'; x.lineWidth = 2.5;
+    x.beginPath(); x.roundRect(10, 4, 24, 56, 7); x.fill(); x.stroke();
+    x.beginPath(); x.arc(22, 17, 7, 0, Math.PI * 2); x.fillStyle = '#ef4444'; x.fill();
+    x.beginPath(); x.arc(22, 17, 10, 0, Math.PI * 2); x.strokeStyle = 'rgba(239,68,68,.45)'; x.lineWidth = 3; x.stroke();
+    x.beginPath(); x.arc(22, 32, 6, 0, Math.PI * 2); x.fillStyle = '#57534e'; x.fill();
+    x.beginPath(); x.arc(22, 47, 6, 0, Math.PI * 2); x.fillStyle = '#57534e'; x.fill();
+    badge(x, 48, 40, 14);
+  },
+};
+const iconURL = {};
 function addCameraIcons() {
-  const S = 48, R = window.devicePixelRatio > 1 ? 2 : 1;
-  const make = (draw) => {
+  const R = window.devicePixelRatio > 1 ? 2 : 1;
+  for (const [name, draw] of Object.entries(ICON_DRAW)) {
     const c = document.createElement('canvas');
-    c.width = c.height = S * R;
+    c.width = c.height = S_ICON * R;
     const x = c.getContext('2d');
     x.scale(R, R);
     draw(x);
-    return { width: S * R, height: S * R, data: x.getImageData(0, 0, S * R, S * R).data };
-  };
-  const sign = (ring) => (x) => {
-    x.beginPath(); x.arc(24, 24, 21, 0, Math.PI * 2); x.fillStyle = '#fff'; x.fill();
-    x.lineWidth = 6; x.strokeStyle = ring; x.stroke();
-    x.beginPath(); x.arc(24, 24, 23, 0, Math.PI * 2); x.lineWidth = 1.5; x.strokeStyle = 'rgba(0,0,0,.35)'; x.stroke();
-  };
-  map.addImage('cam-fixed', make(sign('#dc2626')), { pixelRatio: R });
-  map.addImage('cam-section', make(sign('#7c3aed')), { pixelRatio: R });
-  map.addImage('cam-light', make((x) => {
-    x.fillStyle = '#111827'; x.strokeStyle = '#fff'; x.lineWidth = 2.5;
-    x.beginPath(); x.roundRect(14, 3, 20, 42, 6); x.fill(); x.stroke();
-    [['#ef4444', 12], ['#f59e0b', 24], ['#22c55e', 36]].forEach(([c, y]) => { x.beginPath(); x.arc(24, y, 5, 0, Math.PI * 2); x.fillStyle = c; x.fill(); });
-    // Cámara: pequeño distintivo rojo con un punto blanco
-    x.beginPath(); x.arc(38, 10, 8, 0, Math.PI * 2); x.fillStyle = '#dc2626'; x.fill(); x.strokeStyle = '#fff'; x.lineWidth = 2; x.stroke();
-    x.beginPath(); x.arc(38, 10, 3, 0, Math.PI * 2); x.fillStyle = '#fff'; x.fill();
-  }), { pixelRatio: R });
+    map.addImage(name, { width: S_ICON * R, height: S_ICON * R, data: x.getImageData(0, 0, S_ICON * R, S_ICON * R).data }, { pixelRatio: R });
+    iconURL[name] = c.toDataURL('image/png');
+  }
 }
+/** Icono de radar como <img> para textos (banner, resumen de la ruta). */
+const camImg = (name, size = 22) => (iconURL[name] ? `<img src="${iconURL[name]}" alt="" width="${size}" height="${size}" class="cam-img">` : '');
 
 let camTimer;
 function refreshCameras() {
@@ -862,11 +919,11 @@ function showRouteSheet() {
   const extras = [];
   const fixed = (route.cameras || []).filter((c) => c.kind !== 3).length;
   const lights = (route.cameras || []).filter((c) => c.kind === 3).length;
-  if (fixed) extras.push(`📷 ${fixed} radar${fixed > 1 ? 'es' : ''}`);
-  if (route.sections?.length) extras.push(`⏱️ ${route.sections.length} tramo${route.sections.length > 1 ? 's' : ''}`);
-  if (lights) extras.push(`🚦 ${lights} semáforo${lights > 1 ? 's' : ''} con cámara`);
+  if (fixed) extras.push(`${camImg('cam-fixed-nospeed', 18)} ${fixed} radar${fixed > 1 ? 'es' : ''}`);
+  if (route.sections?.length) extras.push(`${camImg('cam-section', 18)} ${route.sections.length} tramo${route.sections.length > 1 ? 's' : ''}`);
+  if (lights) extras.push(`${camImg('cam-light', 18)} ${lights} semáforo${lights > 1 ? 's' : ''} con cámara`);
   if (route.tollLen > 50) extras.push(`💶 ${fmtDist(route.tollLen)} de peaje`);
-  $('#r-extras').textContent = extras.join(' · ');
+  $('#r-extras').innerHTML = extras.join(' · ');
   const alt = route.tollAlt;
   $('#r-toll').hidden = !alt && !route.tollLen;
   if (!$('#r-toll').hidden) {
@@ -980,17 +1037,27 @@ function renderNav(s) {
   }
   $('#speed').classList.toggle('over', !!(s.limit && kmh > s.limit + Math.max(2, settings.speedMargin)));
   let radarTxt = '', over = false;
-  if (s.section) {
-    radarTxt = `⏱️ Tramo · media ${Math.round(s.section.avg)} km/h${s.section.speed ? ` (límite ${s.section.speed})` : ''} · quedan ${fmtDist(s.section.left)}`;
-    over = s.section.speed && s.section.avg > s.section.speed;
+  // Radar de tramo: barra de progreso con lo que falta para salir y tu velocidad media.
+  const sec = s.section;
+  $('#b-section').hidden = !sec;
+  if (sec) {
+    const pct = Math.min(100, Math.max(0, (sec.done / (sec.len || 1)) * 100));
+    const bad = sec.speed && sec.avg > sec.speed;
+    $('#b-section').classList.toggle('over', !!bad);
+    $('#b-section').innerHTML = `<div class="sec-head">${camImg('cam-section', 26)}<b>Tramo</b><span>quedan <b>${fmtDist(sec.left)}</b></span></div>
+      <div class="sec-bar"><span style="width:${pct.toFixed(1)}%"></span></div>
+      <div class="sec-foot"><span>Tu media: <b>${Math.round(sec.avg)} km/h</b></span>${sec.speed ? `<span>Límite ${sec.speed}</span>` : ''}</div>`;
+  }
+  if (sec) {
+    radarTxt = '';
   } else if (s.radar) {
     radarTxt = s.radar.kind === 3
-      ? `🚦 Semáforo con cámara · ${fmtDist(s.radar.dist)}`
-      : `📷 Radar${s.radar.speed ? ` ${s.radar.speed}` : ''} · ${fmtDist(s.radar.dist)}`;
+      ? `${camImg('cam-light')} Semáforo con cámara · ${fmtDist(s.radar.dist)}`
+      : `${camImg(s.radar.speed ? 'cam-fixed' : 'cam-fixed-nospeed')} Radar${s.radar.speed ? ` · límite ${s.radar.speed}` : ''} · ${fmtDist(s.radar.dist)}`;
     over = s.radar.kind !== 3 && s.radar.speed && kmh > s.radar.speed + 2;
   }
   $('#b-radar').hidden = !radarTxt;
-  $('#b-radar').textContent = radarTxt;
+  $('#b-radar').innerHTML = radarTxt;
   $('#b-radar').classList.toggle('over', !!over);
   const lv = s.live;
   $('#b-live').hidden = !lv;

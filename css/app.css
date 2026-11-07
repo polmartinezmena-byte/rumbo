@@ -263,3 +263,18 @@ h3 { font-size: 15px; margin: 18px 0 6px; }
 .price.cheap { color: #16a34a; }
 .car-card { background: var(--surface-2); border-radius: 12px; padding: 12px; margin: 8px 0; display: grid; gap: 8px; }
 .car-card .row { gap: 8px; }
+
+/* ---------- v6: iconos de radar y barra del tramo ---------- */
+.cam-img { vertical-align: middle; margin-right: 2px; }
+.b-radar .cam-img { margin: -4px 4px -4px 0; }
+.b-section { margin-top: 8px; width: 100%; min-width: 220px; box-sizing: border-box; background: #fff; color: #111; border-radius: 12px; padding: 8px 10px; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
+.b-section .sec-head { display: flex; align-items: center; gap: 6px; font-size: 15px; }
+.b-section .sec-head span { margin-left: auto; }
+.b-section .sec-bar { height: 10px; border-radius: 99px; background: #e9d5ff; overflow: hidden; margin: 6px 0; }
+.b-section .sec-bar span { display: block; height: 100%; background: #7c3aed; border-radius: 99px; transition: width .4s linear; }
+.b-section .sec-foot { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; color: #374151; }
+.b-section.over { background: #fee2e2; }
+.b-section.over .sec-bar { background: #fecaca; }
+.b-section.over .sec-bar span { background: #dc2626; }
+.b-section.over .sec-foot b { color: #b91c1c; }
+.banner .b-body { flex: 1; min-width: 0; }

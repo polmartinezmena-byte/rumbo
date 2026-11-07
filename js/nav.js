@@ -173,7 +173,7 @@ export class Navigator {
         }
         const st = this.secT[i];
         const el = now - st.t;
-        section = { speed: sec.speed, avg: el > 3 ? ((p.along - st.a) / el) * 3.6 : speed * 3.6, left: sec.end - p.along };
+        section = { speed: sec.speed, avg: el > 3 ? ((p.along - st.a) / el) * 3.6 : speed * 3.6, left: sec.end - p.along, len: sec.end - sec.start, done: p.along - sec.start };
       } else if (p.along > sec.end && this.secT[i] && !this.spoken.has('se' + i)) {
         this.spoken.add('se' + i);
         const st = this.secT[i];

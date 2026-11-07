@@ -1,0 +1,13 @@
+{
+  "_info": "Semáforos con cámara (foto-rojo / foto-vermell) que los ayuntamientos han anunciado públicamente pero no publican como datos abiertos. Cada entrada es un cruce entre dos calles; al generar el paquete se localiza el punto exacto en OpenStreetMap. Añade más con su fuente.",
+  "items": [
+    { "town": "Terrassa", "center": [41.5633, 2.0089], "a": "Avinguda del Vallès", "b": null, "source": "https://www.diarideterrassa.com/terrassa/2024/02/23/fotovermell-ja-son-a-terrassa-les-cameres-dels-semafors/", "date": "2024-02-23", "note": "Ya en funcionamiento según la fuente; cruce no indicado: se omite si no se puede situar" },
+    { "town": "Terrassa", "center": [41.5633, 2.0089], "a": "Carretera de Montcada", "b": "Ramón y Cajal", "source": "https://www.diarideterrassa.com/terrassa/2024/02/23/fotovermell-ja-son-a-terrassa-les-cameres-dels-semafors/", "date": "2024-02-23" },
+    { "town": "Terrassa", "center": [41.5633, 2.0089], "a": "Carretera de Montcada", "b": "Baldrich", "source": "https://www.diarideterrassa.com/terrassa/2024/02/23/fotovermell-ja-son-a-terrassa-les-cameres-dels-semafors/", "date": "2024-02-23" },
+    { "town": "Terrassa", "center": [41.5633, 2.0089], "a": "Rambla d'Ègara", "b": "Ausiàs Marc", "source": "https://www.diarideterrassa.com/terrassa/2024/02/23/fotovermell-ja-son-a-terrassa-les-cameres-dels-semafors/", "date": "2024-02-23" },
+    { "town": "Terrassa", "center": [41.5633, 2.0089], "a": "Avinguda de Barcelona", "b": "Estanislau Figueras", "source": "https://www.diarideterrassa.com/terrassa/2024/02/23/fotovermell-ja-son-a-terrassa-les-cameres-dels-semafors/", "date": "2024-02-23" },
+    { "town": "Terrassa", "center": [41.5633, 2.0089], "a": "Avinguda de Barcelona", "b": "Doctor Pearson", "source": "https://www.diarideterrassa.com/terrassa/2024/02/23/fotovermell-ja-son-a-terrassa-les-cameres-dels-semafors/", "date": "2024-02-23" },
+    { "town": "Terrassa", "center": [41.5633, 2.0089], "a": "Passeig del Vint-i-dos de Juliol", "b": "Major de Sant Pere", "source": "https://www.diarideterrassa.com/terrassa/2024/02/23/fotovermell-ja-son-a-terrassa-les-cameres-dels-semafors/", "date": "2024-02-23" },
+    { "town": "Terrassa", "center": [41.5633, 2.0089], "a": "Carretera de Castellar", "b": "Ramón y Cajal", "source": "https://www.diarideterrassa.com/terrassa/2024/02/23/fotovermell-ja-son-a-terrassa-les-cameres-dels-semafors/", "date": "2024-02-23" }
+  ]
+}

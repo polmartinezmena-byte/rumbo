@@ -1,5 +1,5 @@
 // Service worker: la app y el mapa funcionan sin conexión.
-const VERSION = 'v11';
+const VERSION = 'v13';
 const SHELL = `rumbo-shell-${VERSION}`;
 const TILES = 'rumbo-tiles-v1';     // compartida con js/offline-tiles.js
 const RUNTIME = 'rumbo-runtime-v1'; // estilo del mapa y TileJSON
@@ -20,7 +20,8 @@ const tileKey = (url) => {
 };
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(SHELL).then((c) => c.addAll(SHELL_FILES)).then(() => self.skipWaiting()));
+  // cache: 'reload' evita copiar ficheros viejos de la caché HTTP del navegador (GitHub Pages cachea 10 min).
+  e.waitUntil(caches.open(SHELL).then((c) => c.addAll(SHELL_FILES.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {

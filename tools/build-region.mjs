@@ -19,6 +19,7 @@ import { serialize } from '../js/pack.js';
 import { isCameraNode } from '../js/radars.js';
 import { officialRadars, SOURCES } from './official-radars.mjs';
 import { floodGrid } from './flood-zones.mjs';
+import { locateRedLights } from './fotovermell.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -188,6 +189,9 @@ let official = [];
 if (!flag('--no-official')) {
   log('Radares oficiales (DGT, Servei Català de Trànsit, Ayuntamiento de Madrid)…');
   official = await officialRadars(bbox, join(CACHE, 'sources'), (m) => log(m));
+  const extra = locateRedLights(ways, coordOf, bbox, ROOT);
+  official.push(...extra.found);
+  if (extra.found.length || extra.missing.length) log(`  Semáforos con cámara anunciados por ayuntamientos: ${extra.found.length} situados${extra.missing.length ? `, ${extra.missing.length} sin situar (${extra.missing.map((m) => m.a + (m.b ? ' / ' + m.b : '')).join('; ')})` : ''}`);
 }
 
 log('Construyendo grafo y riesgo de inundación…');
