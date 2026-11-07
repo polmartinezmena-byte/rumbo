@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rumbo · Política de privacidad</title>
+  <meta name="description" content="Política de privacidad de Rumbo, navegador GPS sin conexión.">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <style>
+    :root { --bg: #fff; --text: #0f172a; --muted: #475569; --line: #e2e8f0; --accent: #2563eb; color-scheme: light dark; }
+    @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #0f172a; --text: #f1f5f9; --muted: #94a3b8; --line: #334155; --accent: #60a5fa; } }
+    :root[data-theme="dark"] { --bg: #0f172a; --text: #f1f5f9; --muted: #94a3b8; --line: #334155; --accent: #60a5fa; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    main { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
+    h1 { font-size: 28px; margin: 0 0 4px; }
+    h2 { font-size: 19px; margin: 28px 0 8px; border-top: 1px solid var(--line); padding-top: 20px; }
+    p, li { color: var(--text); }
+    .muted { color: var(--muted); }
+    a { color: var(--accent); }
+    table { width: 100%; border-collapse: collapse; font-size: 15px; }
+    th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Política de privacidad de Rumbo</h1>
+  <p class="muted">Última actualización: 7 de noviembre de 2026</p>
+
+  <p><b>Resumen:</b> Rumbo no tiene cuentas, no tiene servidores propios, no muestra publicidad y no recoge ni vende datos personales. Todo lo que guardas (mapas, favoritos, contactos de emergencia, dónde aparcaste y ajustes) se queda en tu dispositivo.</p>
+
+  <h2>1. Responsable</h2>
+  <p>Rumbo es un proyecto de código abierto de Pol Martinez Mena. Contacto: a través de las <a href="https://github.com/polmartinezmena-byte/rumbo/issues">incidencias del repositorio en GitHub</a>.</p>
+
+  <h2>2. Qué datos usa la app y dónde se quedan</h2>
+  <table>
+    <tr><th>Dato</th><th>Para qué</th><th>Dónde se guarda</th></tr>
+    <tr><td>Ubicación (GPS)</td><td>Situarte en el mapa, guiarte, avisarte de radares y enviar tu posición en el SOS</td><td>Solo en el dispositivo. No se envía a ningún servidor propio.</td></tr>
+    <tr><td>Contactos de emergencia</td><td>Preparar el SMS del botón SOS</td><td>Solo en el dispositivo</td></tr>
+    <tr><td>Favoritos y dónde aparcaste</td><td>Llevarte a ellos</td><td>Solo en el dispositivo</td></tr>
+    <tr><td>Mapas descargados y ajustes</td><td>Funcionar sin conexión</td><td>Solo en el dispositivo</td></tr>
+  </table>
+  <p>Puedes borrarlo todo desde <b>Ajustes → Privacidad y datos</b> o desinstalando la app.</p>
+
+  <h2>3. Conexiones a servicios de terceros</h2>
+  <p>Para descargar mapas y datos actualizados, la app se conecta a servicios públicos. Como cualquier conexión a internet, estos servicios pueden ver tu dirección IP, pero Rumbo no les envía ningún identificador personal:</p>
+  <ul>
+    <li><b>Open-Meteo</b> (previsión de lluvia): recibe las coordenadas aproximadas (redondeadas a ~100 m) de tu posición o de puntos de tu ruta.</li>
+    <li><b>OpenFreeMap</b> (teselas del mapa), <b>OpenStreetMap / Overpass</b> (calles), <b>AWS Terrain Tiles</b> (relieve) y el <b>Ministerio para la Transición Ecológica</b> (zonas inundables y precios de carburantes): reciben la zona del mapa que descargas.</li>
+    <li><b>GitHub</b> (alojamiento de la app, paquetes de mapas e incidencias de la DGT y avisos de AEMET ya procesados).</li>
+  </ul>
+  <p>El SMS del botón SOS lo envía la aplicación de mensajes de tu teléfono, solo cuando tú lo pulsas.</p>
+
+  <h2>4. Lo que no hacemos</h2>
+  <ul>
+    <li>No hay cuentas ni inicio de sesión.</li>
+    <li>No hay publicidad, analítica ni rastreadores.</li>
+    <li>No se vende ni se comparte información con terceros.</li>
+  </ul>
+
+  <h2>5. Menores</h2>
+  <p>Rumbo no está dirigido a menores de 14 años y no recoge datos de nadie.</p>
+
+  <h2>6. Tus derechos</h2>
+  <p>Como Rumbo no guarda datos personales fuera de tu dispositivo, no hay datos tuyos que consultar, rectificar o suprimir en ningún servidor. Para cualquier duda, escribe en el repositorio de GitHub.</p>
+
+  <h2>7. Avisos de seguridad</h2>
+  <p>La ruta segura ante inundaciones, los avisos de radares, de Zonas de Bajas Emisiones y de incidencias son una ayuda y pueden no estar completos ni actualizados. Respeta siempre la señalización y las indicaciones de las autoridades (DGT, AEMET, Protección Civil, ES-Alert).</p>
+
+  <p class="muted"><a href="./">← Volver a Rumbo</a></p>
+</main>
+</body>
+</html>

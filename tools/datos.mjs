@@ -8,6 +8,7 @@
 // Fuente: DGT, Punto de Acceso Nacional (nap.dgt.es) — licencia CC BY 4.0.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { gunzipSync } from 'node:zlib';
 
 const OUT = process.argv[2] && !process.argv[2].startsWith('--') ? process.argv[2] : 'datos';
 const WITH_ZBE = process.argv.includes('--zbe');
@@ -105,6 +106,66 @@ export function parseZbe(xml, source) {
   return zones;
 }
 
+// ------------------------------------------------------------------ avisos de AEMET (CAP)
+// AEMET OpenData (requiere clave gratuita: secreto AEMET_API_KEY del repositorio). La respuesta
+// apunta a un fichero .tar (a veces comprimido) con un XML CAP por aviso.
+export function untar(buf) {
+  if (buf[0] === 0x1f && buf[1] === 0x8b) buf = gunzipSync(buf);
+  const files = [];
+  for (let p = 0; p + 512 <= buf.length;) {
+    const name = buf.toString('utf8', p, p + 100).replace(/\0.*$/s, '');
+    if (!name) break;
+    const size = parseInt(buf.toString('utf8', p + 124, p + 136).replace(/\0.*$/s, '').trim() || '0', 8);
+    const type = String.fromCharCode(buf[p + 156] || 48);
+    if (type === '0' || type === '\0') files.push({ name, data: buf.subarray(p + 512, p + 512 + size) });
+    p += 512 + Math.ceil(size / 512) * 512;
+  }
+  return files;
+}
+
+const LEVEL = { amarillo: 1, naranja: 2, rojo: 3 };
+
+/** Extrae los avisos de un XML CAP de AEMET (solo la parte en español). */
+export function parseCap(xml) {
+  const out = [];
+  for (const info of xml.split('<info>').slice(1)) {
+    const lang = tag(info, 'language') || '';
+    if (lang && !/^es/i.test(lang)) continue;
+    const params = Object.fromEntries([...info.matchAll(/<parameter>\s*<valueName>([^<]+)<\/valueName>\s*<value>([^<]*)<\/value>\s*<\/parameter>/g)].map((m) => [m[1].trim(), m[2].trim()]));
+    const nivelRaw = (params['AEMET-Meteoalerta nivel'] || '').toLowerCase();
+    const level = LEVEL[nivelRaw] || 0;
+    if (!level) continue; // «verde»: sin aviso
+    const phen = (params['AEMET-Meteoalerta parametro'] || params['AEMET-Meteoalerta fenomeno'] || tag(info, 'event') || '').trim();
+    for (const area of info.split('<area>').slice(1)) {
+      const polys = [...area.matchAll(/<polygon>([^<]+)<\/polygon>/g)].map((m) =>
+        m[1].trim().split(/\s+/).map((pair) => { const [la, lo] = pair.split(',').map(Number); return [r5(lo), r5(la)]; }).filter((p) => !Number.isNaN(p[0])));
+      if (!polys.some((p) => p.length >= 3)) continue;
+      out.push({
+        event: tag(info, 'event') || '',
+        level, levelName: nivelRaw,
+        phen,
+        rain: /lluvia|precipitaci|tormenta|inundac|costero|galerna/i.test(phen + ' ' + (tag(info, 'event') || '')),
+        onset: tag(info, 'onset') || tag(info, 'effective') || '',
+        expires: tag(info, 'expires') || '',
+        area: tag(area, 'areaDesc') || '',
+        desc: (tag(info, 'description') || '').slice(0, 200),
+        polys: polys.filter((p) => p.length >= 3),
+      });
+    }
+  }
+  return out;
+}
+
+async function fetchAemet(key) {
+  const meta = await (await fetch(`https://opendata.aemet.es/opendata/api/avisos_cap/ultimoelaborado/area/esp?api_key=${encodeURIComponent(key)}`, { headers: UA, signal: AbortSignal.timeout(60000) })).json();
+  if (!meta.datos) throw new Error(`AEMET: ${meta.descripcion || 'sin datos'} (${meta.estado})`);
+  const buf = Buffer.from(await (await fetch(meta.datos, { headers: UA, signal: AbortSignal.timeout(90000) })).arrayBuffer());
+  const files = buf.toString('utf8', 0, 5) === '<?xml' ? [{ name: 'aviso.xml', data: buf }] : untar(buf);
+  const items = [];
+  for (const f of files) if (/\.xml$/i.test(f.name)) items.push(...parseCap(f.data.toString('utf8')));
+  return items;
+}
+
 async function get(url) {
   for (let i = 0; i < 3; i++) {
     try {
@@ -123,6 +184,17 @@ if (import.meta.url === `file://${process.argv[1].replace(/\\/g, '/')}` || proce
   const counts = inc.reduce((a, x) => ((a[x.k] = (a[x.k] || 0) + 1), a), {});
   writeFileSync(join(OUT, 'incidencias.json'), JSON.stringify({ updated: new Date().toISOString(), source: 'DGT · NAP (CC BY 4.0)', items: inc }));
   console.log(`incidencias.json: ${inc.length}`, counts);
+
+  // Avisos de AEMET: solo si existe la clave (secreto AEMET_API_KEY). Sin clave no se toca el fichero.
+  if (process.env.AEMET_API_KEY) {
+    try {
+      const av = await fetchAemet(process.env.AEMET_API_KEY);
+      writeFileSync(join(OUT, 'avisos.json'), JSON.stringify({ updated: new Date().toISOString(), source: 'AEMET (Agencia Estatal de Meteorología)', items: av }));
+      console.log(`avisos.json: ${av.length} avisos (${av.filter((a) => a.level === 3).length} rojos, ${av.filter((a) => a.level === 2).length} naranjas)`);
+    } catch (e) {
+      console.log('AEMET no disponible:', e.message);
+    }
+  } else console.log('Sin AEMET_API_KEY: se omiten los avisos de AEMET');
 
   if (WITH_ZBE) {
     const page = await get(ZBE_PAGE);

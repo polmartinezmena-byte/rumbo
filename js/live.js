@@ -6,7 +6,7 @@ import * as db from './db.js';
 // La DGT no permite peticiones desde el navegador (CORS): un workflow de GitHub las publica cada
 // 15 minutos en la rama «datos» del repositorio (tools/datos.mjs).
 // En desarrollo (localhost) se leen los generados en local con: node tools/datos.mjs tools/.cache/datos --zbe
-export const DATA_BASE = globalThis.location?.hostname === 'localhost'
+export const DATA_BASE = globalThis.location?.port === '5173'
   ? new URL('../tools/.cache/datos/', globalThis.location.href).href
   : 'https://raw.githubusercontent.com/polmartinezmena-byte/rumbo/datos/';
 // El Ministerio sí permite CORS: los precios se piden directamente.
@@ -20,12 +20,12 @@ export const FUELS = {
   glp: { label: 'GLP', field: 'Precio Gases licuados del petróleo' },
 };
 
-const MAX_AGE = { inc: 10 * 60e3, zbe: 24 * 3600e3, fuel: 6 * 3600e3 };
+const MAX_AGE = { inc: 10 * 60e3, zbe: 24 * 3600e3, fuel: 6 * 3600e3, avisos: 10 * 60e3 };
 
-export const live = { inc: null, zbe: null, fuel: null, version: 0 };
+export const live = { inc: null, zbe: null, fuel: null, avisos: null, version: 0 };
 
 export async function loadCached() {
-  for (const k of ['inc', 'zbe', 'fuel']) live[k] = (await db.get('live:' + k)) || null;
+  for (const k of ['inc', 'zbe', 'fuel', 'avisos']) live[k] = (await db.get('live:' + k)) || null;
   live.version++;
   return summary();
 }
@@ -35,6 +35,7 @@ export function summary() {
     inc: live.inc && { at: live.inc.at, updated: live.inc.updated, n: live.inc.items.length },
     zbe: live.zbe && { at: live.zbe.at, updated: live.zbe.updated, n: live.zbe.zones.length },
     fuel: live.fuel && { at: live.fuel.at, date: live.fuel.date, n: live.fuel.la.length },
+    avisos: live.avisos && { at: live.avisos.at, updated: live.avisos.updated, n: activeWarnings().length },
   };
 }
 
@@ -65,6 +66,14 @@ export async function refresh(force = false, onProgress) {
       await db.set('live:zbe', live.zbe);
       changed = true;
     } catch (e) { errors.zbe = e.message; }
+  }
+  if (force || stale('avisos')) {
+    try {
+      const j = await getJson(DATA_BASE + 'avisos.json');
+      live.avisos = { at: Date.now(), updated: j.updated, items: j.items || [] };
+      await db.set('live:avisos', live.avisos);
+      changed = true;
+    } catch (e) { errors.avisos = e.message; } // sin clave de AEMET el fichero no existe: normal
   }
   if (force || stale('fuel')) {
     try {
@@ -110,5 +119,14 @@ export function zoneActive(z, now = new Date()) {
     const [a, b] = t.split('-').map((x) => { const [h, m] = x.split(':').map(Number); return h * 60 + m; });
     if (a === b) return true; // 00:00-00:00 en algunos ficheros = todo el día
     return a <= b ? hm >= a && hm <= b : hm >= a || hm <= b;
+  });
+}
+
+// ------------------------------------------------------------------ avisos de AEMET
+/** Avisos vigentes ahora o que empiezan en las próximas `hours` horas. */
+export function activeWarnings(now = Date.now(), hours = 6) {
+  return (live.avisos?.items || []).filter((a) => {
+    const on = Date.parse(a.onset) || 0, off = Date.parse(a.expires) || Infinity;
+    return off > now && on < now + hours * 3600e3;
   });
 }

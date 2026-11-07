@@ -1,5 +1,5 @@
 // Service worker: la app y el mapa funcionan sin conexión.
-const VERSION = 'v8';
+const VERSION = 'v9';
 const SHELL = `rumbo-shell-${VERSION}`;
 const TILES = 'rumbo-tiles-v1';     // compartida con js/offline-tiles.js
 const RUNTIME = 'rumbo-runtime-v1'; // estilo del mapa y TileJSON
@@ -8,7 +8,7 @@ const SHELL_FILES = [
   './', './index.html', './css/app.css', './manifest.webmanifest', './icon.svg',
   './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png',
   './js/app.js', './js/geo.js', './js/db.js', './js/nav.js', './js/offline-tiles.js', './js/graph-worker.js',
-  './js/graph-build.js', './js/router.js', './js/flood.js', './js/pack.js', './js/weather.js', './js/radars.js', './js/settings.js', './js/flood-zones.js', './js/live.js', './js/live-route.js',
+  './js/graph-build.js', './js/router.js', './js/flood.js', './js/pack.js', './js/weather.js', './js/radars.js', './js/settings.js', './js/flood-zones.js', './js/live.js', './js/live-route.js', './js/config.js', './js/native.js',
   'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js',
   'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css',
 ];

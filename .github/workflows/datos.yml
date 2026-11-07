@@ -28,7 +28,10 @@ jobs:
         run: |
           mkdir -p out
           curl -sf -o out/zbe.json "https://raw.githubusercontent.com/${{ github.repository }}/datos/zbe.json" || true
+          curl -sf -o out/avisos.json "https://raw.githubusercontent.com/${{ github.repository }}/datos/avisos.json" || true
       - name: Generar datos
+        env:
+          AEMET_API_KEY: ${{ secrets.AEMET_API_KEY }}
         run: |
           if [ ! -s out/zbe.json ] || { [ "$(date -u +%H)" = "04" ] && [ "$(date -u +%M)" -lt 15 ]; }; then
             node tools/datos.mjs out --zbe
@@ -40,6 +43,7 @@ jobs:
           cd out
           git init -q -b datos
           git add incidencias.json zbe.json
+          [ -s avisos.json ] && git add avisos.json || true
           git -c user.name="rumbo-datos" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
             commit -qm "Datos DGT $(date -u +%Y-%m-%dT%H:%MZ)"
           git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" datos

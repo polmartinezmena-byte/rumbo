@@ -3,6 +3,8 @@ import { STYLE_URL, MAX_ZOOM, AVG_TILE_KB, prefetchArea, tileList, removeTiles }
 import { Navigator, pointAt, speak, setMuted, isMuted } from './nav.js';
 import { fetchWeather, cachedWeather, LEVELS } from './weather.js';
 import { settings, setSetting, onSettingChange, applyTheme } from './settings.js';
+import { DEV, NATIVE, PACKS } from './config.js';
+import { keepAwake, allowSleep, nativeStop } from './native.js';
 
 applyTheme();
 
@@ -12,7 +14,8 @@ const MAX_AREA_KM2 = 650;
 const REGION_MAX_Z = (r) => (r.main ? 10 : MAX_ZOOM); // España entera: mapa general; comunidades: detalle
 
 // ------------------------------------------------------------------ service worker
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch((e) => console.warn('SW', e));
+// En la app nativa los archivos ya están en el dispositivo: no hace falta service worker.
+if ('serviceWorker' in navigator && !NATIVE) navigator.serviceWorker.register('./sw.js').catch((e) => console.warn('SW', e));
 
 // ------------------------------------------------------------------ worker de rutas (RPC)
 const worker = new Worker(new URL('./graph-worker.js', import.meta.url), { type: 'module' });
@@ -188,7 +191,7 @@ function drawAreas() {
 
 async function loadRegionIndex() {
   try {
-    const r = await fetch('./packs/index.json', { cache: 'no-cache' });
+    const r = await fetch(PACKS + 'index.json', { cache: 'no-cache' });
     if (r.ok) { regionIndex = await r.json(); store.set('regionIndex', regionIndex); }
   } catch { /* sin red: se usa el guardado */ }
   if (!$('#panel').hidden) renderRegions();
@@ -237,12 +240,12 @@ async function withBusy(fn) {
   if (!navigator.onLine) return toast('Necesitas conexión (mejor wifi) para descargar.');
   busy = true;
   $$('#panel button.btn').forEach((b) => (b.disabled = true));
-  navigator.wakeLock?.request('screen').then((l) => (wakeLock = l)).catch(() => {});
+  keepAwake().then((l) => (wakeLock = l));
   try { await fn(); } catch (e) { toast(e.message, 6000); setProgress(0, 'Error: ' + e.message); }
   finally {
     busy = false;
     $$('#panel button.btn').forEach((b) => (b.disabled = false));
-    if (!nav) wakeLock?.release?.().catch(() => {});
+    if (!nav) allowSleep(wakeLock);
     navigator.storage?.persist?.().catch(() => {});
     renderPanel();
   }
@@ -253,7 +256,7 @@ function downloadRegion(r) {
     const maxZ = REGION_MAX_Z(r);
     setProgress(0, `${r.name}: preparando…`);
     const tiles = await prefetchArea(r.bbox, (d, t) => setProgress((d / t) * 0.6, `${r.name} · mapa: ${d.toLocaleString('es-ES')} / ${t.toLocaleString('es-ES')}`), maxZ);
-    catalog = await call('installPack', { key: 'region:' + r.id, urls: r.files.map((f) => new URL('./packs/' + f, location.href).href), size: r.size },
+    catalog = await call('installPack', { key: 'region:' + r.id, urls: r.files.map((f) => PACKS + f), size: r.size },
       (p) => setProgress(0.6 + p.pct * 0.4, `${r.name} · ${p.msg}`));
     setProgress(1, `${r.name} lista`);
     toast(`${r.name} lista para usar sin conexión ✔${tiles.failed ? ` (faltaron ${tiles.failed} teselas: vuelve a pulsar para completar)` : ''}`, 5000);
@@ -445,7 +448,7 @@ function floodLevel() {
   if (settings.floodMode === 'off') return 0;
   if (settings.floodMode === 'on') return 2;
   // Automático: lo peor entre la lluvia donde estás y la prevista a lo largo de la ruta.
-  return Math.max(weather && !weather.stale ? weather.level : 0, routeRain?.level || 0);
+  return Math.max(weather && !weather.stale ? weather.level : 0, routeRain?.level || 0, aemetLevel);
 }
 
 async function refreshWeather() {
@@ -454,6 +457,7 @@ async function refreshWeather() {
   const p = gps || (dest && { lat: dest.lat, lon: dest.lon }) || { lat: c.lat, lon: c.lng };
   const before = floodLevel();
   try { weather = await fetchWeather(p.lat, p.lon); } catch { weather = cachedWeather(); }
+  try { aemetHere = await call('warningsAt', { near: [p.lat, p.lon] }); aemetLevel = Math.max(warnLevel(aemetHere), warnLevel(route?.avisos)); } catch { /* sin avisos */ }
   renderRain();
   if (floodLevel() !== before && dest) {
     const msg = floodLevel() ? `${LEVELS[floodLevel()].label}: recalculando una ruta más segura` : 'La lluvia ha remitido: ruta normal';
@@ -473,6 +477,12 @@ function renderRain() {
   pill.textContent = settings.floodMode === 'on'
     ? '⛈️ Ruta segura activada (manual)'
     : lvl ? `${LEVELS[lvl].icon} ${LEVELS[lvl].label} · ruta segura activada` : `${weather ? LEVELS[0].icon : '🌦️'} Ruta segura: ${settings.floodMode === 'off' ? 'desactivada' : 'automática'}${mm ? ' · ' + mm : ''}`;
+  // Aviso oficial de AEMET donde estás: se muestra antes que la lectura de lluvia.
+  const worst = (aemetHere || []).filter((a) => a.level >= 2).sort((a, b) => b.level - a.level)[0];
+  if (worst && settings.floodMode !== 'on') {
+    pill.textContent = `${worst.level >= 3 ? '🔴' : '🟠'} Aviso ${worst.levelName} de AEMET: ${worst.phen || worst.event}${worst.rain && settings.floodMode === 'auto' ? ' · ruta segura activada' : ''}`;
+    pill.className = `pill rain l${worst.level >= 3 ? 2 : 1}`;
+  }
 
   const w = weather;
   $('#rain-now').innerHTML = w
@@ -547,6 +557,11 @@ function renderLiveNotes() {
     const first = inc.slice(0, 3).map((x) => `${INC_TEXT[x.k] || INC_TEXT.otro}${x.road ? ` en ${esc(x.road)}` : ''} a ${fmtDist(x.along)}`).join('<br>');
     out.push(note(inc.some((x) => /cortada|calzada|inundacion|accidente/.test(x.k)) ? 'warn' : 'info', `${first}${inc.length > 3 ? `<br>… y ${inc.length - 3} más` : ''}`));
   }
+  // Avisos de AEMET en la ruta
+  for (const a of (route.avisos || []).slice(0, 3)) {
+    const until = a.expires ? ` hasta las ${fmtClock(new Date(a.expires))}` : '';
+    out.push(note(a.level >= 3 ? 'bad' : a.level === 2 ? 'warn' : 'info', `${a.level >= 3 ? '🔴' : a.level === 2 ? '🟠' : '🟡'} <b>Aviso ${esc(a.levelName)} de AEMET</b>: ${esc(a.phen || a.event)} en ${esc(a.area)}${until} · a ${fmtDist(a.along)} en tu ruta`));
+  }
   // Lluvia en la ruta
   if (routeRain && routeRain.mm >= 2) out.push(note(routeRain.level ? 'warn' : 'info', `🌧️ ${routeRain.level ? LEVELS[routeRain.level].label : 'Lluvia'} prevista en tu ruta a ${fmtDist(routeRain.along)} (${String(Math.round(routeRain.mm * 10) / 10).replace('.', ',')} mm/h)`));
   // Gasolinera más barata
@@ -573,6 +588,11 @@ const FUEL_LABEL = { g95: 'Gasolina 95', g98: 'Gasolina 98', diesel: 'Diésel', 
 
 // Capas del mapa: ZBE, incidencias de la DGT y precios de carburante.
 function addLiveLayers(firstSymbol) {
+  map.addSource('live-avisos', { type: 'geojson', data: empty });
+  map.addLayer({ id: 'live-avisos-fill', type: 'fill', source: 'live-avisos', maxzoom: 13,
+    paint: { 'fill-color': ['match', ['get', 'level'], 3, '#dc2626', 2, '#f97316', '#facc15'], 'fill-opacity': 0.14 } }, firstSymbol);
+  map.addLayer({ id: 'live-avisos-line', type: 'line', source: 'live-avisos',
+    paint: { 'line-color': ['match', ['get', 'level'], 3, '#dc2626', 2, '#f97316', '#ca8a04'], 'line-width': 1.5 } }, firstSymbol);
   map.addSource('live-zbe', { type: 'geojson', data: empty });
   map.addLayer({ id: 'live-zbe-fill', type: 'fill', source: 'live-zbe', minzoom: 9,
     paint: { 'fill-color': ['case', ['get', 'banned'], '#dc2626', '#16a34a'], 'fill-opacity': ['case', ['all', ['get', 'banned'], ['get', 'active']], 0.12, 0.05] } }, firstSymbol);
@@ -613,6 +633,7 @@ function refreshLiveLayer() {
     if (!mapReady || map.getZoom() < 8) return;
     const L = await call('liveLayer', { bbox: visibleBbox(), fuel: settings.fuel, sticker: settings.sticker });
     map.getSource('live-zbe').setData(L.zbe);
+    map.getSource('live-avisos').setData(L.avisos);
     map.getSource('live-inc').setData(settings.showIncidents ? L.inc : empty);
     map.getSource('live-inc-lines').setData(settings.showIncidents ? L.incLines : empty);
     map.getSource('live-fuel').setData(settings.showFuel && !nav ? L.fuel : empty);
@@ -711,12 +732,27 @@ async function computeRoute({ fit = true, foot = walking } = {}) {
     route.coords.forEach((c) => b.extend(c));
     map.fitBounds(b, { padding: { top: 110, bottom: 300, left: 40, right: 40 }, maxZoom: 17 });
   }
-  if (!foot) checkRainAlongRoute(route);
+  if (!foot) {
+    // Los avisos de AEMET que cruza la ruta pueden exigir la ruta segura.
+    const lv = warnLevel(route.avisos);
+    if (settings.floodMode === 'auto' && lv > aemetLevel) {
+      aemetLevel = lv;
+      if (route.level < floodLevel()) {
+        toast(`Aviso de AEMET en tu ruta: recalculando una ruta más segura…`, 6000);
+        return computeRoute({ fit: false });
+      }
+    }
+    checkRainAlongRoute(route);
+  }
 }
 
 // ------------------------------------------------------------------ lluvia a lo largo de la ruta
 // Open-Meteo admite varias coordenadas en una petición: se mira cada ~10 km del trayecto.
 let routeRain = null;
+let aemetHere = [];
+// Aviso de AEMET por lluvias o tormentas donde estás o en tu ruta: naranja → lluvia fuerte, rojo → torrencial.
+let aemetLevel = 0;
+const warnLevel = (list) => Math.max(0, ...(list || []).filter((a) => a.rain).map((a) => (a.level >= 3 ? 2 : a.level === 2 ? 1 : 0)));
 async function checkRainAlongRoute(r) {
   if (!navigator.onLine || settings.floodMode !== 'auto') { routeRain = null; return; }
   const pts = [];
@@ -853,7 +889,7 @@ function startNav(simulate) {
   $('#banner').hidden = false;
   $('#speed').hidden = false;
   setSheet('nav');
-  navigator.wakeLock?.request('screen').then((l) => (wakeLock = l)).catch(() => {});
+  keepAwake().then((l) => (wakeLock = l));
 
   nav = new Navigator(route, {
     onUpdate: renderNav,
@@ -945,8 +981,8 @@ function stopNav() {
   clearInterval(simTimer);
   simTimer = null;
   nav = null;
-  speechSynthesis?.cancel();
-  wakeLock?.release?.().catch(() => {});
+  if (!nativeStop()) globalThis.speechSynthesis?.cancel(); // corta la voz en curso
+  allowSleep(wakeLock);
   document.body.classList.remove('navigating');
   meEl.className = 'me';
   meEl.innerHTML = '';
@@ -1312,4 +1348,4 @@ renderRain();
 refreshWeather();
 
 // Solo en desarrollo: acceso al mapa desde la consola para pruebas.
-if (location.hostname === 'localhost') window.rumbo = { map, setDest, setOrigin, call, refreshWeather, get route() { return route; }, get nav() { return nav; }, get catalog() { return catalog; }, set catalog(c) { catalog = c; drawAreas(); } };
+if (DEV) window.rumbo = { map, setDest, setOrigin, call, refreshWeather, get route() { return route; }, get nav() { return nav; }, get catalog() { return catalog; }, set catalog(c) { catalog = c; drawAreas(); } };

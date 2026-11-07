@@ -2,6 +2,7 @@
 // la anuncia por voz y detecta cuándo te sales de la ruta.
 import { bearing, fmtDistSpeech } from './geo.js';
 import { settings } from './settings.js';
+import { nativeSpeak, nativeStop } from './native.js';
 
 const RAD = Math.PI / 180;
 const M_PER_DEG = 111320;
@@ -25,11 +26,13 @@ export function pointAt(route, along) {
 }
 
 let muted = false;
-export const setMuted = (m) => { muted = m; if (m) speechSynthesis?.cancel(); };
+export const setMuted = (m) => { muted = m; if (m && !nativeStop()) globalThis.speechSynthesis?.cancel(); };
 export const isMuted = () => muted;
 
 export function speak(text) {
-  if (muted || !settings.voice || !('speechSynthesis' in window)) return;
+  if (muted || !settings.voice) return;
+  if (nativeSpeak(text)) return; // app Android/iOS: motor de voz del sistema
+  if (!('speechSynthesis' in globalThis)) return;
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
   u.lang = 'es-ES';

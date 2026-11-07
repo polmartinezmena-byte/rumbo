@@ -1,0 +1,74 @@
+name: Android
+
+# Compila la app Android (Capacitor) en GitHub, sin necesidad de Android Studio:
+#   · siempre: un APK de prueba (rumbo-debug.apk) para instalar en el móvil
+#   · si existen los secretos de firma: el .aab firmado para subir a Google Play
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'index.html'
+      - 'privacidad.html'
+      - 'css/**'
+      - 'js/**'
+      - 'icons/**'
+      - 'android/**'
+      - 'capacitor.config.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/android.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+      - run: npm ci
+      - name: Copiar la web al proyecto Android
+        run: npm run android:sync
+      - name: Llave de firma (solo si está configurada)
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/rumbo-upload.jks"
+            echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/rumbo-upload.jks" >> "$GITHUB_ENV"
+            echo "SIGNED=1" >> "$GITHUB_ENV"
+          else
+            echo "Sin llave de firma: solo se genera el APK de prueba"
+          fi
+      - name: Compilar
+        working-directory: android
+        env:
+          VERSION_CODE: ${{ github.run_number }}
+          VERSION_NAME: 1.0.${{ github.run_number }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          if [ "$SIGNED" = "1" ]; then ./gradlew --no-daemon assembleDebug bundleRelease; else ./gradlew --no-daemon assembleDebug; fi
+          cp app/build/outputs/apk/debug/app-debug.apk ../rumbo-debug.apk
+          [ "$SIGNED" = "1" ] && cp app/build/outputs/bundle/release/app-release.aab ../rumbo-release.aab || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rumbo-android-${{ github.run_number }}
+          path: |
+            rumbo-debug.apk
+            rumbo-release.aab
+          if-no-files-found: warn
+          retention-days: 30

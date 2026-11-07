@@ -202,3 +202,44 @@ test('un corte de la DGT desvía la ruta y aparece como incidencia en ella', () 
   assert.ok(cut.steps.some((s) => s.name === 'Variante'), 'con el corte se desvía');
   assert.equal(incidentsOnRoute(free, live).length, 1, 'la ruta normal detecta el corte');
 });
+
+import { parseCap, untar } from '../tools/datos.mjs';
+import { warningsOnRoute } from '../js/live-route.js';
+
+const CAP = `<?xml version="1.0" encoding="UTF-8"?>
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2"><identifier>2.49.0.0.724.0.ES.1</identifier><sender>http://www.aemet.es</sender>
+<info><language>es-ES</language><event>Aviso de lluvias de nivel rojo</event><severity>Extreme</severity>
+<onset>2026-10-29T06:00:00+01:00</onset><expires>2026-10-29T23:59:59+01:00</expires>
+<description>Precipitación acumulada en 12 horas: 180 mm.</description>
+<parameter><valueName>AEMET-Meteoalerta nivel</valueName><value>rojo</value></parameter>
+<parameter><valueName>AEMET-Meteoalerta parametro</valueName><value>PR;Precipitación acumulada en 12 horas;180 mm</value></parameter>
+<area><areaDesc>Litoral sur de Valencia</areaDesc><polygon>39.30,-0.50 39.50,-0.50 39.50,-0.30 39.30,-0.30 39.30,-0.50</polygon></area></info>
+<info><language>en-GB</language><event>Red rain warning</event><parameter><valueName>AEMET-Meteoalerta nivel</valueName><value>rojo</value></parameter>
+<area><areaDesc>South coast of Valencia</areaDesc><polygon>39.30,-0.50 39.50,-0.50 39.50,-0.30 39.30,-0.30 39.30,-0.50</polygon></area></info></alert>`;
+
+test('AEMET: lee un aviso CAP (solo en español) y detecta que la ruta lo cruza', () => {
+  const av = parseCap(CAP);
+  assert.equal(av.length, 1, 'solo la parte en español');
+  assert.equal(av[0].level, 3);
+  assert.ok(av[0].rain, 'es de lluvias');
+  assert.equal(av[0].area, 'Litoral sur de Valencia');
+  const route = { coords: [[-0.6, 39.4], [-0.4, 39.4], [-0.2, 39.4]], cum: [0, 17000, 34000] };
+  const hits = warningsOnRoute(route, av);
+  assert.equal(hits.length, 1);
+  assert.ok(hits[0].along > 0 && hits[0].along <= 17000);
+});
+
+test('AEMET: abre un .tar con varios avisos', () => {
+  const file = (name, body) => {
+    const data = Buffer.from(body);
+    const h = Buffer.alloc(512);
+    h.write(name, 0);
+    h.write(data.length.toString(8).padStart(11, '0') + '\0', 124);
+    h.write('0', 156);
+    return Buffer.concat([h, data, Buffer.alloc((512 - (data.length % 512)) % 512)]);
+  };
+  const tar = Buffer.concat([file('a.xml', CAP), file('b.xml', CAP), Buffer.alloc(1024)]);
+  const files = untar(tar);
+  assert.equal(files.length, 2);
+  assert.equal(parseCap(files[1].data.toString()).length, 1);
+});

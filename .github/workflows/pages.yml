@@ -42,7 +42,7 @@ jobs:
       - name: Preparar el sitio (sin herramientas ni tests)
         run: |
           mkdir -p _site
-          cp -r index.html css js icons icon.svg manifest.webmanifest sw.js packs _site/
+          cp -r index.html privacidad.html css js icons icon.svg manifest.webmanifest sw.js packs _site/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

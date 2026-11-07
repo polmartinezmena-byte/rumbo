@@ -1,0 +1,8 @@
+{
+  "appId": "io.github.polmartinezmena.rumbo",
+  "appName": "Rumbo",
+  "webDir": "www",
+  "server": { "androidScheme": "https" },
+  "android": { "backgroundColor": "#0f172a" },
+  "plugins": {}
+}

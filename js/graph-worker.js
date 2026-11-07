@@ -11,7 +11,9 @@ import { deserialize } from './pack.js';
 import * as R from './router.js';
 import { camerasLayer } from './radars.js';
 import { live, loadCached, refresh as refreshLive, summary as liveSummary } from './live.js';
-import { penalties, incidentsOnRoute, zbeOnRoute, fuelOnRoute, liveLayer } from './live-route.js';
+import { penalties, incidentsOnRoute, zbeOnRoute, fuelOnRoute, liveLayer, warningsOnRoute, warningsAt } from './live-route.js';
+import { activeWarnings } from './live.js';
+import { PACKS } from './config.js';
 
 const OVERPASS = [
   'https://overpass-api.de/api/interpreter',
@@ -38,6 +40,7 @@ self.onmessage = async (e) => {
       case 'liveSummary': result = liveSummary(); break;
       case 'liveLayer': result = liveLayer(live, e.data.bbox, e.data.fuel, e.data.sticker); break;
       case 'fuelNear': result = fuelNear(e.data.near, e.data.fuel); break;
+      case 'warningsAt': result = warningsAt(e.data.near[0], e.data.near[1], activeWarnings()); break;
       case 'cameras': result = await camerasIn(e.data.bbox); break;
       case 'search': result = await searchAll(e.data.q, e.data.near); break;
       case 'nearby': result = await nearbyAll(e.data.near, e.data.cat); break;
@@ -226,6 +229,7 @@ async function routeAny(from, to, level, avoidTolls = false, opts = {}) {
       safe.incidents = incidentsOnRoute(safe, live);
       safe.zbe = zbeOnRoute(G, safe, safe.path, live, { sticker: opts.sticker || '', now });
       safe.fuel = foot ? null : fuelOnRoute(safe, live, opts.fuel);
+      safe.avisos = warningsOnRoute(safe, activeWarnings(now));
       delete safe.path;
       safe.flood = !!G.risk;
       if (level > 0 && G.risk) {
@@ -292,7 +296,7 @@ async function camerasIn(bbox) {
 // Radares oficiales (DGT, Cataluña, Madrid) publicados junto a la app al generar los paquetes.
 async function officialRadars(b) {
   try {
-    const r = await fetch(new URL('../packs/radares-oficiales.json', self.location.href));
+    const r = await fetch(PACKS + 'radares-oficiales.json');
     if (!r.ok) return [];
     return (await r.json())
       .filter(([la, lo]) => la >= b.s && la <= b.n && lo >= b.w && lo <= b.e)

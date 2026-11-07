@@ -3,7 +3,7 @@
 //   · qué tramos están cortados o con obras según la DGT
 //   · qué incidencias, ZBE y gasolineras encuentra una ruta concreta
 import { fastDist } from './geo.js';
-import { zoneActive, FUELS } from './live.js';
+import { zoneActive, FUELS, activeWarnings } from './live.js';
 
 const M = 111320;
 
@@ -247,6 +247,38 @@ export function fuelOnRoute(route, live, fuelType, limit = 6) {
   };
 }
 
+function inRing(x, y, r) {
+  let c = false;
+  for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+    const [xi, yi] = r[i], [xj, yj] = r[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c;
+  }
+  return c;
+}
+
+/** Avisos de AEMET que cruza la ruta (se comprueba un punto cada ~2 km). */
+export function warningsOnRoute(route, list) {
+  if (!list?.length) return [];
+  const { coords, cum } = route;
+  const hits = new Map();
+  let next = 0;
+  for (let i = 0; i < coords.length; i++) {
+    if (cum[i] < next && i !== coords.length - 1) continue;
+    next = cum[i] + 2000;
+    const [x, y] = coords[i];
+    list.forEach((a, k) => {
+      if (hits.has(k)) return;
+      if (a.polys.some((p) => inRing(x, y, p))) hits.set(k, cum[i]);
+    });
+  }
+  return [...hits].map(([k, along]) => ({ ...list[k], polys: undefined, along })).sort((a, b) => b.level - a.level || a.along - b.along);
+}
+
+/** Avisos que afectan a un punto (tu posición). */
+export function warningsAt(lat, lon, list) {
+  return (list || []).filter((a) => a.polys.some((p) => inRing(lon, lat, p))).map((a) => ({ ...a, polys: undefined }));
+}
+
 /** GeoJSON para el mapa (zona visible): incidencias, ZBE y gasolineras con precio. */
 export function liveLayer(live, b, fuelType, sticker) {
   const inc = (live.inc?.items || []).filter((x) => inBox(b, x.from[0], x.from[1]) || (x.to && inBox(b, x.to[0], x.to[1])))
@@ -275,6 +307,8 @@ export function liveLayer(live, b, fuelType, sticker) {
     const lo = ps[Math.floor(ps.length * 0.2)] ?? 0, hi = ps[Math.floor(ps.length * 0.8)] ?? 0;
     for (const f of fuel) f.properties.tier = f.properties.v <= lo ? 0 : f.properties.v >= hi ? 2 : 1;
   }
+  const avisos = activeWarnings().filter((a) => a.polys.some((r) => r.some(([x, y]) => inBox({ s: b.s - 1, n: b.n + 1, w: b.w - 1, e: b.e + 1 }, y, x))))
+    .map((a) => ({ type: 'Feature', properties: { level: a.level, phen: a.phen, area: a.area, expires: a.expires }, geometry: { type: 'MultiPolygon', coordinates: a.polys.map((r) => [r]) } }));
   const fc = (features) => ({ type: 'FeatureCollection', features });
-  return { inc: fc(inc), incLines: fc(lines), zbe: fc(zbe), fuel: fc(fuel) };
+  return { inc: fc(inc), incLines: fc(lines), zbe: fc(zbe), fuel: fc(fuel), avisos: fc(avisos) };
 }
