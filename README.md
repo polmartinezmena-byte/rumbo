@@ -16,8 +16,8 @@
   <img alt="Licencia MIT" src="https://img.shields.io/badge/licencia-MIT-0f172a">
 </p>
 
-<!-- Sustituye TU-USUARIO y añade un GIF de la demo en docs/demo.gif -->
-<p align="center"><a href="https://TU-USUARIO.github.io/rumbo/"><b>▶ Probar la demo</b></a></p>
+<!-- Añade un GIF de la demo en docs/demo.gif -->
+<p align="center"><a href="https://polmartinezmena-byte.github.io/rumbo/"><b>▶ Probar la demo</b></a></p>
 
 ---
 
