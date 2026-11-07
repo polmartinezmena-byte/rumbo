@@ -110,17 +110,22 @@ map.on('load', () => {
   map.addSource('route-risk', { type: 'geojson', data: empty });
   map.addLayer({ id: 'route-risk-line', type: 'line', source: 'route-risk', layout: { 'line-join': 'round', 'line-cap': 'round' },
     paint: { 'line-color': ['case', ['get', 'hard'], '#7c3aed', '#f97316'], 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 3.5, 17, 10] } }, firstSymbol);
-  // Radares: rojo fijo, morado tramo, ámbar semáforo con cámara.
+  // Radares en el mapa (visibles también con la voz apagada): señal de límite para los fijos
+  // (aro rojo) y los de tramo (aro morado), y un semáforo para los semáforos con cámara.
+  addCameraIcons();
   map.addSource('cameras', { type: 'geojson', data: empty });
-  map.addLayer({ id: 'cameras-dot', type: 'circle', source: 'cameras', minzoom: 10,
-    paint: {
-      'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 4, 15, 9],
-      'circle-color': ['match', ['get', 'kind'], 1, '#7c3aed', 2, '#7c3aed', 3, '#f59e0b', '#dc2626'],
-      'circle-stroke-color': '#fff', 'circle-stroke-width': 2,
-    } });
-  map.addLayer({ id: 'cameras-label', type: 'symbol', source: 'cameras', minzoom: 12,
-    layout: { 'text-field': ['to-string', ['get', 'speed']], 'text-size': 10, 'text-font': ['Noto Sans Bold'], 'text-allow-overlap': true },
-    paint: { 'text-color': '#fff' } });
+  map.addLayer({ id: 'cameras-icon', type: 'symbol', source: 'cameras', minzoom: 11,
+    layout: {
+      'icon-image': ['match', ['get', 'kind'], 3, 'cam-light', 1, 'cam-section', 2, 'cam-section', 'cam-fixed'],
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 11, 0.45, 15, 0.75, 18, 1],
+      'icon-allow-overlap': true, 'icon-ignore-placement': true,
+      'icon-pitch-alignment': 'viewport', 'icon-rotation-alignment': 'viewport',
+      'text-field': ['case', ['all', ['!=', ['get', 'kind'], 3], ['>', ['to-number', ['get', 'speed'], 0], 0]], ['to-string', ['get', 'speed']], ''],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 11, 8, 15, 12, 18, 16],
+      'text-font': ['Noto Sans Bold'], 'text-allow-overlap': true, 'text-ignore-placement': true,
+      'text-pitch-alignment': 'viewport',
+    },
+    paint: { 'text-color': '#111' } });
   map.addSource('favs', { type: 'geojson', data: empty });
   map.addLayer({ id: 'favs-dot', type: 'circle', source: 'favs',
     paint: { 'circle-radius': 7, 'circle-color': '#eab308', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } });
@@ -140,6 +145,7 @@ map.on('load', () => {
 let catalog = {};           // mapas guardados en el dispositivo (worker)
 let regionIndex = store.get('regionIndex', null); // catálogo de comunidades publicado
 let origin = null, dest = null, route = null, nav = null, simTimer = null;
+let navPos = null, simAlong = 0; // última posición guiada y avance del simulador
 let follow = true, gps = null, watchId = null, centerOnFix = false, wakeLock = null;
 let weather = cachedWeather();
 let favs = store.get('favs', []);
@@ -444,7 +450,9 @@ async function refreshWeather() {
   try { weather = await fetchWeather(p.lat, p.lon); } catch { weather = cachedWeather(); }
   renderRain();
   if (floodLevel() !== before && dest) {
-    toast(floodLevel() ? `${LEVELS[floodLevel()].label}: recalculando una ruta más segura…` : 'La lluvia ha remitido: ruta normal');
+    const msg = floodLevel() ? `${LEVELS[floodLevel()].label}: recalculando una ruta más segura` : 'La lluvia ha remitido: ruta normal';
+    toast(msg + '…');
+    if (nav) speak(msg);
     computeRoute({ fit: false });
   }
 }
@@ -498,6 +506,34 @@ async function toggleRiskLayer(on, manual = false) {
 $('#risk-layer').onchange = (e) => toggleRiskLayer(e.target.checked, true);
 
 // ================================================================== RADARES
+// Iconos dibujados en canvas (no dependen de fuentes ni de archivos externos: funcionan sin conexión).
+function addCameraIcons() {
+  const S = 48, R = window.devicePixelRatio > 1 ? 2 : 1;
+  const make = (draw) => {
+    const c = document.createElement('canvas');
+    c.width = c.height = S * R;
+    const x = c.getContext('2d');
+    x.scale(R, R);
+    draw(x);
+    return { width: S * R, height: S * R, data: x.getImageData(0, 0, S * R, S * R).data };
+  };
+  const sign = (ring) => (x) => {
+    x.beginPath(); x.arc(24, 24, 21, 0, Math.PI * 2); x.fillStyle = '#fff'; x.fill();
+    x.lineWidth = 6; x.strokeStyle = ring; x.stroke();
+    x.beginPath(); x.arc(24, 24, 23, 0, Math.PI * 2); x.lineWidth = 1.5; x.strokeStyle = 'rgba(0,0,0,.35)'; x.stroke();
+  };
+  map.addImage('cam-fixed', make(sign('#dc2626')), { pixelRatio: R });
+  map.addImage('cam-section', make(sign('#7c3aed')), { pixelRatio: R });
+  map.addImage('cam-light', make((x) => {
+    x.fillStyle = '#111827'; x.strokeStyle = '#fff'; x.lineWidth = 2.5;
+    x.beginPath(); x.roundRect(14, 3, 20, 42, 6); x.fill(); x.stroke();
+    [['#ef4444', 12], ['#f59e0b', 24], ['#22c55e', 36]].forEach(([c, y]) => { x.beginPath(); x.arc(24, y, 5, 0, Math.PI * 2); x.fillStyle = c; x.fill(); });
+    // Cámara: pequeño distintivo rojo con un punto blanco
+    x.beginPath(); x.arc(38, 10, 8, 0, Math.PI * 2); x.fillStyle = '#dc2626'; x.fill(); x.strokeStyle = '#fff'; x.lineWidth = 2; x.stroke();
+    x.beginPath(); x.arc(38, 10, 3, 0, Math.PI * 2); x.fillStyle = '#fff'; x.fill();
+  }), { pixelRatio: R });
+}
+
 let camTimer;
 function refreshCameras() {
   clearTimeout(camTimer);
@@ -510,7 +546,8 @@ function refreshCameras() {
 // ================================================================== RUTAS
 async function computeRoute({ fit = true } = {}) {
   if (!dest) return;
-  const from = origin || gps;
+  // Navegando, la ruta nueva sale de donde vas (GPS o posición simulada), no del punto de salida.
+  const from = nav ? (!simTimer && gps) || navPos || origin || gps : origin || gps;
   if (!hasMaps()) {
     toast('Primero descarga tu comunidad o una zona en «Mapas sin conexión».');
     $('#btn-menu').click();
@@ -530,7 +567,13 @@ async function computeRoute({ fit = true } = {}) {
     return;
   }
   drawRoute();
-  if (nav) { nav.setRoute(route); return; }
+  if (nav) {
+    simAlong = 0;
+    nav.setRoute(route);
+    const note = floodNote(route);
+    if (note && route.level > 0) toast(note.html.replace(/<br>/g, ' · ').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim(), 7000);
+    return;
+  }
   showRouteSheet();
   if (fit) {
     const b = new maplibregl.LngLatBounds();
@@ -662,10 +705,11 @@ function startNav(simulate) {
   });
 
   if (simulate) {
-    let along = 0;
+    simAlong = 0;
     const SPEED = 15, TICK = 300;
     simTimer = setInterval(() => {
-      along = Math.min(route.distance, along + SPEED * 2 * (TICK / 1000));
+      simAlong = Math.min(route.distance, simAlong + SPEED * 2 * (TICK / 1000));
+      const along = simAlong;
       const p = pointAt(route, along);
       nav.update({ lat: p.lat, lon: p.lon, speed: SPEED, accuracy: 5 });
       $('#speed-v').textContent = Math.round(SPEED * 3.6);
@@ -675,6 +719,7 @@ function startNav(simulate) {
 }
 
 function renderNav(s) {
+  navPos = { lat: s.snapped[1], lon: s.snapped[0] };
   $('#b-icon').innerHTML = maneuverSvg(s.step);
   $('#b-dist').textContent = s.step.type === 'arrive' && s.dist < 30 ? 'Llegando' : fmtDist(s.dist);
   $('#b-text').textContent = s.step.text;
@@ -713,6 +758,7 @@ function renderNav(s) {
 }
 
 function stopNav() {
+  navPos = null;
   clearInterval(simTimer);
   simTimer = null;
   nav = null;
@@ -1051,4 +1097,4 @@ renderRain();
 refreshWeather();
 
 // Solo en desarrollo: acceso al mapa desde la consola para pruebas.
-if (location.hostname === 'localhost') window.rumbo = { map, setDest, setOrigin, get route() { return route; } };
+if (location.hostname === 'localhost') window.rumbo = { map, setDest, setOrigin, call, refreshWeather, get route() { return route; }, get nav() { return nav; }, get catalog() { return catalog; }, set catalog(c) { catalog = c; drawAreas(); } };

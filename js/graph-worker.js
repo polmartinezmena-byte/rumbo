@@ -58,17 +58,57 @@ async function init() {
   return catalog;
 }
 
+// IndexedDB no admite un valor de más de ~128 MB en Chrome, y una comunidad grande ocupa más:
+// cada tabla (array tipado) se guarda como una entrada aparte y la cabecera lista cuáles son.
+const PART_MAX = 32 * 1024 * 1024;
+
 async function save(key, G) {
   loaded.delete(key);
-  await db.set('graph:' + key, G);
+  await removeParts(key);
+  const head = { __parts: [] };
+  for (const [k, v] of Object.entries(G)) {
+    if (!ArrayBuffer.isView(v)) { head[k] = v; continue; }
+    const per = Math.max(1, Math.floor(PART_MAX / v.BYTES_PER_ELEMENT));
+    const n = Math.ceil(v.length / per) || 1;
+    head.__parts.push({ k, n, type: v.constructor.name, length: v.length });
+    for (let i = 0; i < n; i++) await db.set(`graph:${key}:${k}:${i}`, v.slice(i * per, (i + 1) * per));
+  }
+  await db.set('graph:' + key, head);
   catalog[key] = R.stats(G);
   await db.set('catalog', catalog);
   remember(key, G);
   return catalog;
 }
 
+async function removeParts(key) {
+  const head = await db.get('graph:' + key);
+  for (const p of head?.__parts || []) for (let i = 0; i < p.n; i++) await db.del(`graph:${key}:${p.k}:${i}`);
+}
+
+const ARRAYS = { Float64Array, Float32Array, Int32Array, Uint32Array, Uint8Array, Uint16Array, Int16Array };
+
+async function load(key) {
+  const head = await db.get('graph:' + key);
+  if (!head || !head.__parts) return head; // formato antiguo: todo en una entrada
+  const G = { ...head };
+  delete G.__parts;
+  for (const p of head.__parts) {
+    const out = new ARRAYS[p.type](p.length);
+    let off = 0;
+    for (let i = 0; i < p.n; i++) {
+      const part = await db.get(`graph:${key}:${p.k}:${i}`);
+      if (!part) throw new Error('El mapa guardado está incompleto: vuelve a descargarlo');
+      out.set(part, off);
+      off += part.length;
+    }
+    G[p.k] = out;
+  }
+  return G;
+}
+
 async function remove(key) {
   loaded.delete(key);
+  await removeParts(key);
   await db.del('graph:' + key);
   delete catalog[key];
   await db.set('catalog', catalog);
@@ -87,7 +127,7 @@ async function graph(key) {
     remember(key, G);
     return G;
   }
-  const G = await db.get('graph:' + key);
+  const G = await load(key);
   if (!G) throw new Error('Falta el mapa descargado: vuelve a descargarlo');
   remember(key, G);
   return G;
@@ -117,6 +157,8 @@ async function downloadArea(b, id) {
       const r = await fetch(url, {
         method: 'POST', body: 'data=' + encodeURIComponent(q),
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        // Si un servidor se satura y no responde, se prueba el siguiente en vez de esperar para siempre.
+        signal: AbortSignal.timeout(150000),
       });
       if (!r.ok) throw new Error(`Overpass respondió ${r.status}`);
       progress(id, 'Leyendo datos…', 0.5);
