@@ -1002,7 +1002,7 @@ function startNav(simulate) {
   if (!route) return;
   if (!simulate && !gps) {
     startGps();
-    return toast('Esperando señal GPS… Puedes usar «Simular» para probar la ruta.');
+    return toast('Esperando señal GPS… Comprueba que Rumbo tiene permiso de ubicación.');
   }
   document.body.classList.add('navigating');
   meEl.className = 'me-nav';
@@ -1136,6 +1136,8 @@ function stopNav() {
 map.on('dragstart', () => { if (nav) { follow = false; $('#btn-recenter').hidden = false; } });
 $('#btn-recenter').onclick = () => { follow = true; $('#btn-recenter').hidden = true; };
 $('#btn-go').onclick = () => startNav(false);
+// El simulador solo se ofrece en desarrollo (para probar rutas desde el ordenador).
+$('#btn-sim').hidden = !DEV;
 $('#btn-sim').onclick = () => startNav(true);
 $('#btn-stop').onclick = stopNav;
 $('#btn-mute').onclick = () => setSetting('voice', !settings.voice);

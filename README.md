@@ -37,7 +37,7 @@
 - 🅿️ **¿Dónde aparqué?**: al llegar guarda dónde dejas el coche y luego te lleva de vuelta **a pie**, por calles de cualquier sentido.
 - ⚙️ **Ajustes**: voz, cada tipo de aviso por separado, margen del aviso de velocidad, peajes, ruta segura, número de emergencias, tema claro u oscuro, borrar datos, y los créditos y licencias de todas las fuentes.
 - 👋 **Bienvenida** la primera vez: explica el permiso de ubicación, propone la comunidad donde estás y pide los contactos de emergencia. Se instala en el móvil como una app, con iconos para iOS y Android.
-- ⭐ **Favoritos**, búsqueda local que ignora acentos, «Mi ubicación» al abrir y **modo simulación** para probar rutas desde el ordenador.
+- ⭐ **Favoritos**, búsqueda local que ignora acentos, «Mi ubicación» al abrir. En desarrollo (`npm run dev`) hay un **modo simulación** para probar rutas desde el ordenador.
 
 ## Ruta segura ante inundaciones
 
