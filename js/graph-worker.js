@@ -50,6 +50,7 @@ self.onmessage = async (e) => {
       case 'search': result = await searchAll(e.data.q, e.data.near); break;
       case 'nearby': result = await nearbyAll(e.data.near, e.data.cat); break;
       case 'riskLayer': result = await riskLayer(e.data.bbox); break;
+      case 'loadedKeys': result = { full: [...loaded.keys()], partial: [...partial.keys()] }; break; // diagnóstico
       default: throw new Error('Petición desconocida: ' + type);
     }
     post({ id, ok: true, result });
@@ -79,6 +80,7 @@ const PART_MAX = 32 * 1024 * 1024;
 
 async function save(key, G) {
   loaded.delete(key);
+  partial.delete(key);
   await removeParts(key);
   const head = { __parts: [] };
   for (const [k, v] of Object.entries(G)) {
@@ -121,8 +123,31 @@ async function load(key) {
   return G;
 }
 
+// Solo algunas tablas de un mapa guardado (p. ej. los radares) sin cargar el mapa entero.
+const partial = new Map(); // key → { campo: array }
+async function loadFields(key, fields) {
+  const have = partial.get(key) || {};
+  const head = await db.get('graph:' + key);
+  if (!head?.__parts) return null;
+  for (const p of head.__parts) {
+    if (!fields.includes(p.k) || have[p.k]) continue;
+    const out = new ARRAYS[p.type](p.length);
+    let off = 0;
+    for (let i = 0; i < p.n; i++) {
+      const part = await db.get(`graph:${key}:${p.k}:${i}`);
+      if (!part) return null;
+      out.set(part, off);
+      off += part.length;
+    }
+    have[p.k] = out;
+  }
+  partial.set(key, have);
+  return have;
+}
+
 async function remove(key) {
   loaded.delete(key);
+  partial.delete(key);
   await removeParts(key);
   await db.del('graph:' + key);
   delete catalog[key];
@@ -130,10 +155,14 @@ async function remove(key) {
   return catalog;
 }
 
+// En iPhone, Safari cierra la página si usa demasiada memoria (se queda la pantalla en negro):
+// allí solo se mantiene un mapa grande en memoria a la vez.
+const IOS = /iP(hone|ad|od)|Macintosh.*Mobile/.test(self.navigator?.userAgent || '');
+const MAX_LOADED = IOS ? 1 : 2;
 function remember(key, G) {
   loaded.delete(key);
   loaded.set(key, G);
-  while (loaded.size > 2) loaded.delete(loaded.keys().next().value);
+  while (loaded.size > MAX_LOADED) loaded.delete(loaded.keys().next().value);
 }
 
 async function graph(key) {
@@ -435,7 +464,12 @@ async function camerasIn(bbox) {
   const c = [(bbox.s + bbox.n) / 2, (bbox.w + bbox.e) / 2];
   const keys = candidates([c]);
   const fc = { type: 'FeatureCollection', features: [] };
-  for (const k of keys.slice(0, 2)) fc.features.push(...camerasLayer(await graph(k), bbox).features);
+  // Para dibujar los radares basta con sus tablas (unos KB), no con el mapa entero (cientos de MB).
+  const CAM = ['cLa', 'cLo', 'cSpeed', 'cKind', 'cSec', 'cDir'];
+  for (const k of keys.slice(0, 2)) {
+    const G = loaded.get(k) || (await loadFields(k, CAM)) || (await graph(k));
+    fc.features.push(...camerasLayer(G, bbox).features);
+  }
   // Fuera de tus mapas: al menos los radares oficiales (DGT, Cataluña, Madrid).
   if (!keys.length) {
     const P = await officialPack().catch(() => null);
