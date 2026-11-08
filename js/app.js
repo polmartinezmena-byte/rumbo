@@ -102,6 +102,29 @@ const map = new maplibregl.Map({
 });
 addEventListener('resize', () => map.resize());
 document.addEventListener('visibilitychange', () => !document.hidden && map.resize());
+
+// iOS libera la memoria gráfica de las apps en segundo plano: al volver, el mapa se queda en negro
+// y el navegador no siempre lo recupera. Si en 2 s no vuelve, se recarga la app conservando el
+// destino y la navegación (se retoma sola).
+let glLost = false, glTimer = null;
+function checkGl() {
+  clearTimeout(glTimer);
+  if (!glLost || document.hidden) return;
+  glTimer = setTimeout(() => { if (glLost && !document.hidden) reloadKeepingState(); }, 2000);
+}
+map.on('webglcontextlost', () => { glLost = true; checkGl(); });
+map.on('webglcontextrestored', () => { glLost = false; clearTimeout(glTimer); });
+document.addEventListener('visibilitychange', checkGl);
+addEventListener('pageshow', checkGl);
+
+function reloadKeepingState() {
+  try {
+    sessionStorage.setItem('rumbo:resume', JSON.stringify({
+      dest, origin, nav: !!nav && !simTimer, walking, t: Date.now(),
+    }));
+  } catch { /* sin almacenamiento: se recarga igualmente */ }
+  location.reload();
+}
 map.on('moveend', () => {
   if (!nav) store.set('view', { c: map.getCenter().toArray(), z: map.getZoom() });
   updateEstimate();
@@ -1454,7 +1477,12 @@ function showOnboarding() {
 $('#btn-replay-onboarding').onclick = () => { setSheet(null); showOnboarding(); };
 
 // ================================================================== ARRANQUE
-call('init').then((c) => {
+// Vuelta tras una recarga por pérdida del mapa: se recupera el destino y, si ibas navegando, se retoma.
+let resume = null;
+try { resume = JSON.parse(sessionStorage.getItem('rumbo:resume')); sessionStorage.removeItem('rumbo:resume'); } catch { /* nada */ }
+if (resume && Date.now() - resume.t > 10 * 60 * 1000) resume = null;
+
+call('init').then(async (c) => {
   catalog = c;
   drawAreas();
   refreshLiveLayer(); // con los datos en directo guardados, antes de actualizarlos
@@ -1462,11 +1490,24 @@ call('init').then((c) => {
   if (store.get('riskLayer')) toggleRiskLayer(true);
   updateNet();
   if (!hasMaps() && store.get('onboarded')) setTimeout(() => toast('Descarga tu comunidad (⬇) para usar Rumbo sin conexión.', 6000), 1200);
+  if (resume?.dest) {
+    if (resume.origin) { origin = resume.origin; originMarker.setLngLat([origin.lon, origin.lat]).addTo(map); }
+    dest = resume.dest;
+    destMarker.setLngLat([dest.lon, dest.lat]).addTo(map);
+    if (resume.nav) startGps();
+    // Para retomar el guiado hace falta tu posición: se espera al GPS (máx. 15 s).
+    for (let i = 0; resume.nav && !gps && i < 30; i++) await new Promise((r) => setTimeout(r, 500));
+    await computeRoute({ fit: !resume.nav, foot: !!resume.walking });
+    if (resume.nav && route && gps) startNav(false);
+  }
 });
 if (!store.get('onboarded')) loadRegionIndex().then(showOnboarding);
 else loadRegionIndex();
 renderRain();
 refreshWeather();
+
+// La app ha arrancado: se quita el aviso de «no arranca» de index.html.
+globalThis.rumboBooted?.();
 
 // Solo en desarrollo: acceso al mapa desde la consola para pruebas.
 if (DEV) window.rumbo = { map, setDest, setOrigin, call, refreshWeather, get route() { return route; }, get nav() { return nav; }, get catalog() { return catalog; }, set catalog(c) { catalog = c; drawAreas(); } };

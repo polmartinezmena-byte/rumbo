@@ -12,6 +12,39 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Rumbo">
+  <script>
+    // Red de seguridad: si la app no termina de arrancar (fallo de red, caché rota…), en vez de una
+    // pantalla en negro se ofrece recargar o reparar (borra la copia de la app, no tus mapas ni favoritos).
+    (function () {
+      var shown = false;
+      function show(why) {
+        if (shown || window.rumboOk) return;
+        shown = true;
+        var d = document.createElement('div');
+        d.id = 'boot-fail';
+        d.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;background:#0f172a;color:#e2e8f0;font:16px system-ui,sans-serif;text-align:center';
+        d.innerHTML = '<b style="font-size:20px">Rumbo no ha terminado de arrancar</b>' +
+          '<span style="opacity:.75;max-width:320px">' + (why || 'Puede ser la conexión o una copia antigua de la app.') + '</span>' +
+          '<button id="boot-reload" style="font:inherit;padding:12px 22px;border:0;border-radius:12px;background:#2563eb;color:#fff;font-weight:600">Volver a intentar</button>' +
+          '<button id="boot-repair" style="font:inherit;padding:10px 18px;border:1px solid #475569;border-radius:12px;background:none;color:#e2e8f0">Reparar la app</button>' +
+          '<small style="opacity:.6;max-width:320px">Reparar descarga otra vez la app. Tus mapas, favoritos y contactos se conservan.</small>';
+        (document.body || document.documentElement).appendChild(d);
+        document.getElementById('boot-reload').onclick = function () { location.reload(); };
+        document.getElementById('boot-repair').onclick = function () {
+          var jobs = [];
+          if (navigator.serviceWorker) jobs.push(navigator.serviceWorker.getRegistrations().then(function (rs) { return Promise.all(rs.map(function (r) { return r.unregister(); })); }));
+          if (window.caches) jobs.push(caches.keys().then(function (ks) { return Promise.all(ks.filter(function (k) { return k.indexOf('rumbo-tiles') < 0; }).map(function (k) { return caches.delete(k); })); }));
+          Promise.all(jobs).catch(function () {}).then(function () { location.reload(); });
+        };
+      }
+      var timer = setTimeout(function () { show(); }, 12000);
+      window.rumboBooted = function () { window.rumboOk = true; clearTimeout(timer); var d = document.getElementById('boot-fail'); if (d) d.remove(); };
+      window.addEventListener('error', function (e) {
+        // Solo errores de arranque: si falta MapLibre o falla el módulo principal.
+        if (!window.rumboOk && (typeof maplibregl === 'undefined' || /app\.js/.test(e.filename || ''))) setTimeout(function () { show('No se pudo cargar una parte de la app.'); }, 1500);
+      }, true);
+    })();
+  </script>
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
   <link rel="stylesheet" href="css/app.css">
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
