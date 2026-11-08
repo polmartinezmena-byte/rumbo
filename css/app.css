@@ -152,7 +152,8 @@ details summary { cursor: pointer; color: var(--primary); font-weight: 600; padd
 .toast { position: fixed; left: 50%; bottom: calc(24px + var(--safe-bottom)); transform: translate(-50%, 140%); z-index: 9; max-width: min(92vw, 460px);
   background: #111827; color: #fff; padding: 12px 16px; border-radius: 12px; box-shadow: var(--shadow); transition: transform .25s, visibility .25s; pointer-events: none; visibility: hidden; }
 .toast.show { transform: translate(-50%, 0); visibility: visible; }
-body.navigating .topbar, body.navigating .fabs { display: none; }
+body.navigating .topbar, body.navigating #btn-locate { display: none; }
+/* Durante la navegación el SOS sigue a mano (encima de la ficha de guiado). */
 
 /* ---------- v2: pills, SOS, lluvia, favoritos, comunidades ---------- */
 .min0 { min-width: 0; }
