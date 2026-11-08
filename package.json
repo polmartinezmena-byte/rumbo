@@ -10,7 +10,8 @@
     "build:region": "node --max-old-space-size=12000 tools/build-region.mjs",
     "test": "node --test tests/*.test.mjs",
     "build:web": "node tools/build-web.mjs",
-    "android:sync": "node tools/build-web.mjs && npx cap sync android"
+    "android:sync": "node tools/build-web.mjs && npx cap sync android",
+    "icons": "node tools/icons.mjs && capacitor-assets generate --android --iconBackgroundColor '#2563eb' --splashBackgroundColor '#0f172a'"
   },
   "engines": {
     "node": ">=20"
