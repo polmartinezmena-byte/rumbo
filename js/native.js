@@ -3,22 +3,7 @@
 const plugins = () => globalThis.Capacitor?.Plugins || {};
 const isNative = () => !!globalThis.Capacitor?.isNativePlatform?.();
 
-/** Mantiene la pantalla encendida (navegación, descargas). Devuelve un manejador para allowSleep. */
-export async function keepAwake() {
-  try {
-    if (isNative() && plugins().KeepAwake) { await plugins().KeepAwake.keepAwake(); return 'native'; }
-    return await navigator.wakeLock?.request('screen');
-  } catch {
-    return null;
-  }
-}
-
-export function allowSleep(handle) {
-  try {
-    if (handle === 'native') plugins().KeepAwake?.allowSleep();
-    else handle?.release?.();
-  } catch { /* nada */ }
-}
+// La pantalla encendida está en awake.js.
 
 /**
  * Voz. El WebView de Android no implementa speechSynthesis: en la app se usa el motor de voz del

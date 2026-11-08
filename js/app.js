@@ -4,7 +4,8 @@ import { Navigator, pointAt, speak, setMuted, isMuted } from './nav.js';
 import { fetchWeather, cachedWeather, LEVELS } from './weather.js';
 import { settings, setSetting, onSettingChange, applyTheme } from './settings.js';
 import { DEV, NATIVE, PACKS } from './config.js';
-import { keepAwake, allowSleep, nativeStop } from './native.js';
+import { nativeStop } from './native.js';
+import { keepAwake, allowSleep } from './awake.js';
 import { offlineStyle, registerOfflineProtocol } from './map-offline.js';
 
 applyTheme();
@@ -177,7 +178,7 @@ let origin = null, dest = null, route = null, nav = null, simTimer = null;
 let navPos = null, simAlong = 0; // última posición guiada y avance del simulador
 let walking = false;              // ruta a pie (volver al coche)
 let car = store.get('car', null); // dónde aparcaste
-let follow = true, gps = null, watchId = null, centerOnFix = false, wakeLock = null;
+let follow = true, gps = null, watchId = null, centerOnFix = false;
 let weather = cachedWeather();
 let favs = store.get('favs', []);
 let contacts = store.get('contacts', []);
@@ -263,12 +264,12 @@ async function withBusy(fn) {
   if (!navigator.onLine) return toast('Necesitas conexión (mejor wifi) para descargar.');
   busy = true;
   $$('#panel button.btn').forEach((b) => (b.disabled = true));
-  keepAwake().then((l) => (wakeLock = l));
+  keepAwake('descarga');
   try { await fn(); } catch (e) { toast(e.message, 6000); setProgress(0, 'Error: ' + e.message); }
   finally {
     busy = false;
     $$('#panel button.btn').forEach((b) => (b.disabled = false));
-    if (!nav) allowSleep(wakeLock);
+    allowSleep('descarga');
     navigator.storage?.persist?.().catch(() => {});
     renderPanel();
   }
@@ -987,7 +988,7 @@ function startNav(simulate) {
   $('#banner').hidden = false;
   $('#speed').hidden = false;
   setSheet('nav');
-  keepAwake().then((l) => (wakeLock = l));
+  keepAwake('nav');
 
   nav = new Navigator(route, {
     onUpdate: renderNav,
@@ -1096,7 +1097,7 @@ function stopNav() {
   simTimer = null;
   nav = null;
   if (!nativeStop()) globalThis.speechSynthesis?.cancel(); // corta la voz en curso
-  allowSleep(wakeLock);
+  allowSleep('nav');
   document.body.classList.remove('navigating');
   meEl.className = 'me';
   meEl.innerHTML = '';
@@ -1382,11 +1383,13 @@ function renderEmergencyNumber() {
   $('#sos-call-label').textContent = `Llamar al ${settings.emergencyNumber}`;
 }
 renderEmergencyNumber();
+if (settings.screenAlways) keepAwake('siempre');
 
 onSettingChange((key) => {
   if (key === 'voice') renderMute();
   if (key === 'theme') applyTheme();
   if (key === 'buildings3d') apply3d();
+  if (key === 'screenAlways') settings.screenAlways ? keepAwake('siempre') : allowSleep('siempre');
   if (key === 'emergencyNumber') renderEmergencyNumber();
   if (key === 'floodMode') renderRain();
   if (['avoidTolls', 'floodMode', 'sticker', 'avoidZbe', 'fuel'].includes(key) && dest && sheetNow !== 'rain') computeRoute({ fit: false });

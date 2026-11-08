@@ -12,6 +12,7 @@ export const DEFAULTS = {
   floodMode: 'auto',         // auto | on | off
   emergencyNumber: '112',
   theme: 'auto',             // auto | light | dark
+  screenAlways: false,       // pantalla encendida con la app abierta (si no, solo al navegar y al descargar)
   sticker: '',               // etiqueta DGT: '0' | 'ECO' | 'C' | 'B' | 'A' (sin etiqueta) | '' (no lo sé)
   avoidZbe: true,            // evitar las ZBE donde la etiqueta no puede entrar
   fuel: 'g95',               // g95 | g98 | diesel | dieselp | glp | '' (eléctrico)
