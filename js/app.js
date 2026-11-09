@@ -953,7 +953,8 @@ function showRouteSheet() {
   const note = floodNote(route);
   $('#r-flood').hidden = !note;
   if (note) { $('#r-flood').className = 'flood-note ' + note.cls; $('#r-flood').innerHTML = note.html; }
-  $('#btn-fav-dest').textContent = favs.some((f) => near(f, dest)) ? '★' : '☆';
+  $('#btn-fav-dest').classList.toggle('on', favs.some((f) => near(f, dest)));
+  $('#btn-fav-dest svg').classList.toggle('fill', favs.some((f) => near(f, dest)));
 
   // Radares en la ruta y elección con / sin peaje.
   const extras = [];
@@ -1147,7 +1148,12 @@ $('#btn-sim').hidden = !DEV;
 $('#btn-sim').onclick = () => startNav(true);
 $('#btn-stop').onclick = stopNav;
 $('#btn-mute').onclick = () => setSetting('voice', !settings.voice);
-const renderMute = () => { $('#btn-mute').textContent = settings.voice ? '🔊' : '🔇'; setMuted(!settings.voice); };
+const SPEAKER = '<path d="M11 5 6 9H3v6h3l5 4z"/>';
+const renderMute = () => {
+  $('#btn-mute').innerHTML = `<svg class="ico" viewBox="0 0 24 24">${SPEAKER}${settings.voice ? '<path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/>' : '<path d="m16 9 6 6m0-6-6 6"/>'}</svg>`;
+  $('#btn-mute').setAttribute('aria-label', settings.voice ? 'Silenciar voz' : 'Activar voz');
+  setMuted(!settings.voice);
+};
 renderMute();
 
 // ================================================================== SOS
@@ -1243,7 +1249,7 @@ function renderContacts() {
   ul.innerHTML = contacts.length ? '' : '<li class="muted">Aún no tienes contactos de emergencia.</li>';
   contacts.forEach((c, i) => {
     const li = document.createElement('li');
-    li.innerHTML = `<div class="meta"><b>${esc(c.name)}</b><small>${esc(c.tel)}</small></div><button class="del" aria-label="Quitar ${esc(c.name)}">✕</button>`;
+    li.innerHTML = `<div class="meta"><b>${esc(c.name)}</b><small>${esc(c.tel)}</small></div><button class="del" aria-label="Quitar ${esc(c.name)}"><svg viewBox="0 0 24 24" class="ico"><path d="M6 6l12 12M18 6 6 18"/></svg></button>`;
     li.querySelector('.del').onclick = () => { contacts.splice(i, 1); store.set('contacts', contacts); renderContacts(); };
     ul.appendChild(li);
   });
@@ -1321,7 +1327,7 @@ function renderFavs() {
   for (const f of favs) {
     const li = document.createElement('li');
     const d = gps ? ` · ${fmtDist(haversine(gps.lat, gps.lon, f.lat, f.lon))}` : '';
-    li.innerHTML = `<span class="dir">★</span><div class="meta"><b>${esc(f.name)}</b><small>${f.lat.toFixed(4)}, ${f.lon.toFixed(4)}${d}</small></div><button class="del" aria-label="Borrar ${esc(f.name)}">✕</button>`;
+    li.innerHTML = `<span class="dir"><svg viewBox="0 0 24 24" class="ico fill"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"/></svg></span><div class="meta"><b>${esc(f.name)}</b><small>${f.lat.toFixed(4)}, ${f.lon.toFixed(4)}${d}</small></div><button class="del" aria-label="Borrar ${esc(f.name)}"><svg viewBox="0 0 24 24" class="ico"><path d="M6 6l12 12M18 6 6 18"/></svg></button>`;
     li.onclick = (e) => {
       if (e.target.closest('.del')) return;
       setDest({ lat: f.lat, lon: f.lon, label: f.name });

@@ -132,8 +132,8 @@
           <div id="r-to" class="muted small ellipsis"></div>
         </div>
         <div class="row">
-          <button id="btn-fav-dest" class="icon-btn" aria-label="Guardar en favoritos" title="Guardar en favoritos">☆</button>
-          <button id="btn-close-route" class="icon-btn" aria-label="Cerrar ruta">✕</button>
+          <button id="btn-fav-dest" class="icon-btn" aria-label="Guardar en favoritos" title="Guardar en favoritos"><svg class="ico" viewBox="0 0 24 24"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"/></svg></button>
+          <button id="btn-close-route" class="icon-btn" aria-label="Cerrar ruta"><svg class="ico" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
         </div>
       </div>
       <div id="r-extras" class="small muted"></div>
@@ -164,7 +164,7 @@
         <div class="stat"><b id="n-eta"></b><small>llegada</small></div>
         <div class="stat"><b id="n-time"></b><small>restante</small></div>
         <div class="stat"><b id="n-dist"></b><small>distancia</small></div>
-        <button id="btn-mute" class="icon-btn" aria-label="Silenciar voz" title="Voz">🔊</button>
+        <button id="btn-mute" class="icon-btn" aria-label="Silenciar voz" title="Voz"><svg class="ico" viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></button>
       </div>
       <button id="btn-stop" class="btn danger full">Terminar</button>
     </div>
@@ -173,14 +173,14 @@
     <div id="sheet-sos" hidden>
       <div class="row between">
         <h2>Emergencia</h2>
-        <button id="btn-close-sos" class="icon-btn" aria-label="Cerrar">✕</button>
+        <button id="btn-close-sos" class="icon-btn" aria-label="Cerrar"><svg class="ico" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
       </div>
       <div class="sos-grid">
-        <a id="sos-call" class="sos-btn call" href="tel:112"><span class="e">📞</span><span><b id="sos-call-label">Llamar al 112</b><small>Emergencias · gratis, sin saldo ni cobertura de tu operador</small></span></a>
-        <button id="sos-share" class="sos-btn share"><span class="e">📍</span><span><b>Enviar mi ubicación</b><small id="sos-share-sub">a mis contactos de emergencia</small></span></button>
-        <button class="sos-btn near" data-cat="hospital"><span class="e">🏥</span><span><b>Hospital más cercano</b><small>Buscando…</small></span></button>
-        <button class="sos-btn near" data-cat="fuel"><span class="e">⛽</span><span><b>Gasolinera más cercana</b><small>Buscando…</small></span></button>
-        <button class="sos-btn near" data-cat="pharmacy"><span class="e">💊</span><span><b>Farmacia más cercana</b><small>Buscando…</small></span></button>
+        <a id="sos-call" class="sos-btn call" href="tel:112"><span class="e" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/></svg></span><span><b id="sos-call-label">Llamar al 112</b><small>Emergencias · gratis, sin saldo ni cobertura de tu operador</small></span></a>
+        <button id="sos-share" class="sos-btn share"><span class="e" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-12a7 7 0 1 1 14 0c0 5.8-7 12-7 12z"/><circle cx="12" cy="9" r="2.5"/></svg></span><span><b>Enviar mi ubicación</b><small id="sos-share-sub">a mis contactos de emergencia</small></span></button>
+        <button class="sos-btn near" data-cat="hospital"><span class="e" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M12 8v8M8 12h8"/></svg></span><span><b>Hospital más cercano</b><small>Buscando…</small></span></button>
+        <button class="sos-btn near" data-cat="fuel"><span class="e" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 21V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v16M3 21h13M15 9h2a2 2 0 0 1 2 2v5a1.5 1.5 0 0 0 3 0V8l-3-3"/><path d="M7 7h5"/></svg></span><span><b>Gasolinera más cercana</b><small>Buscando…</small></span></button>
+        <button class="sos-btn near" data-cat="pharmacy"><span class="e" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m10.5 20.5 10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7z"/><path d="m8.5 8.5 7 7"/></svg></span><span><b>Farmacia más cercana</b><small>Buscando…</small></span></button>
       </div>
       <p id="sos-coords" class="mono small muted center"></p>
       <div class="row gap wrap center">
@@ -197,7 +197,7 @@
     <div id="sheet-contacts" hidden>
       <div class="row between">
         <h2>Contactos de emergencia</h2>
-        <button id="btn-close-contacts" class="icon-btn" aria-label="Cerrar">✕</button>
+        <button id="btn-close-contacts" class="icon-btn" aria-label="Cerrar"><svg class="ico" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
       </div>
       <p class="small muted">Se guardan solo en este dispositivo. Al pulsar «Enviar mi ubicación» se abre un SMS ya escrito para ellos: el SMS funciona aunque no tengas datos móviles.</p>
       <ul id="contacts" class="list"></ul>
@@ -213,7 +213,7 @@
     <div id="sheet-rain" hidden>
       <div class="row between">
         <h2>Lluvia y ruta segura</h2>
-        <button id="btn-close-rain" class="icon-btn" aria-label="Cerrar">✕</button>
+        <button id="btn-close-rain" class="icon-btn" aria-label="Cerrar"><svg class="ico" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
       </div>
       <div id="rain-now" class="card"></div>
       <div class="seg" role="radiogroup" aria-label="Modo ruta segura">
@@ -231,7 +231,7 @@
     <div id="sheet-favs" hidden>
       <div class="row between">
         <h2>Favoritos</h2>
-        <button id="btn-close-favs" class="icon-btn" aria-label="Cerrar">✕</button>
+        <button id="btn-close-favs" class="icon-btn" aria-label="Cerrar"><svg class="ico" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
       </div>
       <div id="car" class="car-card" hidden></div>
       <ul id="favs" class="list"></ul>
@@ -241,7 +241,7 @@
     <div id="sheet-settings" hidden>
       <div class="row between">
         <h2>Ajustes</h2>
-        <button id="btn-close-settings" class="icon-btn" aria-label="Cerrar">✕</button>
+        <button id="btn-close-settings" class="icon-btn" aria-label="Cerrar"><svg class="ico" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
       </div>
 
       <h3>Navegación</h3>
@@ -269,9 +269,9 @@
 
       <h3>Avisos</h3>
       <div class="set-list">
-        <label class="set"><span>📷 Radares fijos</span><input type="checkbox" class="switch" data-set="alertFixed"></label>
-        <label class="set"><span>⏱️ Radares de tramo</span><input type="checkbox" class="switch" data-set="alertSection"></label>
-        <label class="set"><span>🚦 Semáforos con cámara</span><input type="checkbox" class="switch" data-set="alertRedLight"></label>
+        <label class="set"><span>Radares fijos</span><input type="checkbox" class="switch" data-set="alertFixed"></label>
+        <label class="set"><span>Radares de tramo</span><input type="checkbox" class="switch" data-set="alertSection"></label>
+        <label class="set"><span>Semáforos con cámara</span><input type="checkbox" class="switch" data-set="alertRedLight"></label>
         <label class="set"><span>Avisar si supero el límite de velocidad</span><input type="checkbox" class="switch" data-set="speedWarning"></label>
         <div class="set col"><span>Margen antes de avisar</span>
           <div class="seg seg4" data-seg="speedMargin">
@@ -333,7 +333,7 @@
     <div id="sheet-credits" hidden>
       <div class="row between">
         <h2>Acerca de Rumbo</h2>
-        <button id="btn-close-credits" class="icon-btn" aria-label="Volver">✕</button>
+        <button id="btn-close-credits" class="icon-btn" aria-label="Volver"><svg class="ico" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
       </div>
       <p>Navegador GPS que funciona sin conexión. Las rutas se calculan en tu dispositivo: sin cuenta, sin servidores y sin rastreo.</p>
       <p class="small"><a href="https://github.com/polmartinezmena-byte/rumbo" target="_blank" rel="noopener">Código fuente en GitHub</a> · <a href="privacidad.html" target="_blank" rel="noopener">Política de privacidad</a> · Licencia MIT · <span id="app-version"></span></p>
@@ -371,13 +371,13 @@
         <button class="btn primary full" data-next>Empezar</button>
       </div>
       <div class="ob-step" data-step="1" hidden>
-        <h2>📍 Tu ubicación</h2>
+        <h2>Tu ubicación</h2>
         <p>Para guiarte y para enviar tu posición en una emergencia. El GPS funciona sin datos móviles y tu ubicación <b>no sale del dispositivo</b>.</p>
         <button class="btn primary full" id="ob-locate">Permitir ubicación</button>
         <button class="btn full" data-next>Ahora no</button>
       </div>
       <div class="ob-step" data-step="2" hidden>
-        <h2>🗺️ Descarga tu zona</h2>
+        <h2>Descarga tu zona</h2>
         <p id="ob-region-text">Elige la comunidad donde te mueves. Se descarga una vez (mejor con wifi) y ya funciona sin conexión.</p>
         <select id="ob-region" class="ob-select"></select>
         <p id="ob-region-size" class="small muted"></p>
@@ -385,7 +385,7 @@
         <button class="btn full" data-next>Más tarde</button>
       </div>
       <div class="ob-step" data-step="3" hidden>
-        <h2>🆘 Contactos de emergencia</h2>
+        <h2>Contactos de emergencia</h2>
         <p>Con el botón SOS podrás enviarles tu ubicación por SMS en un toque, aunque no tengas datos.</p>
         <button class="btn primary full" id="ob-contacts">Añadir contactos</button>
         <button class="btn full" data-next>Más tarde</button>
@@ -398,7 +398,7 @@
   <aside id="panel" class="panel" hidden>
     <div class="row between">
       <h2>Mapas sin conexión</h2>
-      <button id="panel-close" class="icon-btn" aria-label="Cerrar">✕</button>
+      <button id="panel-close" class="icon-btn" aria-label="Cerrar"><svg class="ico" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
     </div>
     <p class="muted small">Descarga con wifi. Después tendrás mapa, búsqueda, rutas, ruta segura y SOS <b>sin internet</b>.</p>
 
