@@ -451,3 +451,17 @@ html, body { font-family: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacS
   body.navigating .toast { top: auto; bottom: calc(var(--sheet-h, 160px) + 100px); transform: translate(-50%, 40px); }
   body.navigating .toast.show { transform: translate(-50%, 0); }
 }
+
+/* ---------- v9: conducción sin ruta ---------- */
+/* Sin ruta no hay maniobra: el banner solo enseña el radar, el semáforo o el tramo que tienes delante. */
+body.free-drive:not(.navigating) .banner #b-icon,
+body.free-drive:not(.navigating) .banner #b-dist,
+body.free-drive:not(.navigating) .banner #b-text,
+body.free-drive:not(.navigating) .banner #b-warn,
+body.free-drive:not(.navigating) .banner #b-live { display: none !important; }
+body.free-drive:not(.navigating) .banner { padding: 10px 12px; background: var(--nav); box-shadow: var(--shadow-lg); }
+body.free-drive:not(.navigating) .banner .b-body { padding-top: 0; }
+body.free-drive:not(.navigating) .b-radar { margin-top: 0; font-size: 17px; padding: 8px 12px; }
+body.free-drive:not(.navigating) .b-section { margin-top: 0; }
+body.free-drive:not(.navigating):not(.has-sheet) .speed { bottom: calc(96px + var(--safe-bottom)); }
+@media (min-width: 700px) { body.free-drive:not(.navigating):not(.has-sheet) .speed { bottom: calc(24px + var(--safe-bottom)); } }

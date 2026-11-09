@@ -6,6 +6,7 @@ export const DEFAULTS = {
   alertFixed: true,          // radares fijos
   alertSection: true,        // radares de tramo
   alertRedLight: true,       // semáforos con cámara
+  freeDrive: true,           // avisos también conduciendo sin ruta
   speedWarning: true,        // aviso al superar el límite
   speedMargin: 5,            // km/h de margen antes de avisar
   avoidTolls: false,

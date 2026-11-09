@@ -6,6 +6,7 @@ import { settings, setSetting, onSettingChange, applyTheme } from './settings.js
 import { DEV, NATIVE, PACKS } from './config.js';
 import { nativeStop } from './native.js';
 import { keepAwake, allowSleep } from './awake.js';
+import { FreeDrive } from './free-drive.js';
 import { offlineStyle, registerOfflineProtocol } from './map-offline.js';
 
 applyTheme();
@@ -442,6 +443,7 @@ function onPos(p) {
   }
   if (first) refreshWeather();
   if (nav && !simTimer) nav.update(gps);
+  else if (!nav) free.update(gps);
   if (sheetNow === 'sos') updateSosCoords();
 }
 
@@ -1055,6 +1057,7 @@ function clearRoute() {
 // ================================================================== NAVEGACIÓN
 function startNav(simulate) {
   if (!route) return;
+  free.stop();
   if (!simulate && !gps) {
     startGps();
     return toast('Esperando señal GPS… Comprueba que Rumbo tiene permiso de ubicación.');
@@ -1125,6 +1128,20 @@ function renderNav(s) {
     $('#limit').title = s.limitInferred ? 'Límite general para este tipo de vía (no señalizado en el mapa)' : 'Velocidad máxima de la vía';
   }
   $('#speed').classList.toggle('over', !!(s.limit && kmh > s.limit + Math.max(2, settings.speedMargin)));
+  renderCams(s, kmh);
+  const lv = s.live;
+  $('#b-live').hidden = !lv;
+  if (lv) {
+    $('#b-live').textContent = lv.kind === 'inc'
+      ? `${INC_TEXT[lv.k] || INC_TEXT.otro}${lv.road ? ' · ' + lv.road : ''} · ${fmtDist(lv.dist)}`
+      : lv.banned ? `⛔ ZBE ${lv.name}${lv.inside ? '' : ' · ' + fmtDist(lv.dist)} · no puedes entrar` : `🚫 ZBE ${lv.name} · puedes circular`;
+    $('#b-live').classList.toggle('bad', !!lv.bad);
+  }
+  renderNavRest(s);
+}
+
+// Radar o semáforo por delante y barra del tramo (guiado y conducción sin ruta).
+function renderCams(s, kmh) {
   let radarTxt = '', over = false;
   // Radar de tramo: barra de progreso con lo que falta para salir y tu velocidad media.
   const sec = s.section;
@@ -1142,20 +1159,45 @@ function renderNav(s) {
   } else if (s.radar) {
     radarTxt = s.radar.kind === 3
       ? `${camImg('cam-light')} Semáforo con cámara · ${fmtDist(s.radar.dist)}`
+      : s.radar.kind === 1
+      ? `${camImg('cam-section')} Tramo${s.radar.speed ? ` · límite ${s.radar.speed}` : ''} · ${fmtDist(s.radar.dist)}`
       : `${camImg(s.radar.speed ? 'cam-fixed' : 'cam-fixed-nospeed')} Radar${s.radar.speed ? ` · límite ${s.radar.speed}` : ''} · ${fmtDist(s.radar.dist)}`;
     over = s.radar.kind !== 3 && s.radar.speed && kmh > s.radar.speed + 2;
   }
   $('#b-radar').hidden = !radarTxt;
   $('#b-radar').innerHTML = radarTxt;
   $('#b-radar').classList.toggle('over', !!over);
-  const lv = s.live;
-  $('#b-live').hidden = !lv;
-  if (lv) {
-    $('#b-live').textContent = lv.kind === 'inc'
-      ? `${INC_TEXT[lv.k] || INC_TEXT.otro}${lv.road ? ' · ' + lv.road : ''} · ${fmtDist(lv.dist)}`
-      : lv.banned ? `⛔ ZBE ${lv.name}${lv.inside ? '' : ' · ' + fmtDist(lv.dist)} · no puedes entrar` : `🚫 ZBE ${lv.name} · puedes circular`;
-    $('#b-live').classList.toggle('bad', !!lv.bad);
+  return !!(radarTxt || sec);
+}
+
+// ------------------------------------------------------------------ conducción sin ruta
+const free = new FreeDrive({
+  ask: (lat, lon, heading) => call('ahead', { lat, lon, heading }),
+  speak,
+  onState: renderFree,
+});
+function renderFree(s) {
+  if (nav) return;
+  if (!s) {
+    document.body.classList.remove('free-drive');
+    $('#banner').hidden = true;
+    $('#speed').hidden = true;
+    allowSleep('libre');
+    return;
   }
+  if (!document.body.classList.contains('free-drive')) { document.body.classList.add('free-drive'); keepAwake('libre'); }
+  const kmh = s.speed * 3.6;
+  $('#speed').hidden = false;
+  $('#speed-v').textContent = Math.round(kmh);
+  const lim = s.limit?.limit;
+  $('#limit').hidden = !lim;
+  if (lim) { $('#limit-v').textContent = lim; $('#limit').classList.toggle('inferred', !!s.limit.inferred); }
+  $('#speed').classList.toggle('over', !!(lim && kmh > lim + Math.max(2, settings.speedMargin)));
+  // El banner solo aparece cuando hay algo delante (radar, tramo o semáforo).
+  $('#banner').hidden = !renderCams(s, kmh);
+}
+
+function renderNavRest(s) {
   $('#n-eta').textContent = fmtClock(new Date(Date.now() + s.remTime * 1000));
   $('#n-time').textContent = fmtTime(s.remTime);
   $('#n-dist').textContent = fmtDist(s.remaining);
@@ -1603,4 +1645,4 @@ refreshWeather();
 globalThis.rumboBooted?.();
 
 // Solo en desarrollo: acceso al mapa desde la consola para pruebas.
-if (DEV) window.rumbo = { map, setDest, setOrigin, call, refreshWeather, get route() { return route; }, get nav() { return nav; }, get catalog() { return catalog; }, set catalog(c) { catalog = c; drawAreas(); } };
+if (DEV) window.rumbo = { map, setDest, setOrigin, call, refreshWeather, get route() { return route; }, get nav() { return nav; }, get catalog() { return catalog; }, free, set catalog(c) { catalog = c; drawAreas(); } };

@@ -47,6 +47,7 @@ self.onmessage = async (e) => {
       case 'fuelNear': result = fuelNear(e.data.near, e.data.fuel); break;
       case 'warningsAt': result = warningsAt(e.data.near[0], e.data.near[1], activeWarnings()); break;
       case 'cameras': result = await camerasIn(e.data.bbox); break;
+      case 'ahead': result = await ahead(e.data.lat, e.data.lon, e.data.heading); break;
       case 'search': result = await searchAll(e.data.q, e.data.near); break;
       case 'nearby': result = await nearbyAll(e.data.near, e.data.cat); break;
       case 'riskLayer': result = await riskLayer(e.data.bbox); break;
@@ -476,6 +477,59 @@ async function camerasIn(bbox) {
     if (P) fc.features.push(...camerasLayer(P, bbox).features);
   }
   return fc;
+}
+
+// ------------------------------------------------------------------ conducción sin ruta
+// Radares a menos de 1,5 km (con el final de cada tramo) y, si el mapa ya está en memoria, el límite
+// de la vía por la que vas. La app decide cuáles quedan por delante según tu rumbo.
+const CAM_FIELDS = ['cLa', 'cLo', 'cSpeed', 'cKind', 'cSec', 'cDir'];
+const secEnds = new WeakMap(); // tablas de radares → { sec: índice del final del tramo }
+async function ahead(lat, lon, heading) {
+  const keys = candidates([[lat, lon]]);
+  const tables = [];
+  for (const k of keys.slice(0, 2)) {
+    const T = loaded.get(k) || (await loadFields(k, CAM_FIELDS));
+    if (T?.cLa) tables.push(T);
+  }
+  if (!tables.length) { const P = await officialPack().catch(() => null); if (P) tables.push(P); }
+  const R2 = 1500, dLat = R2 / 111320, dLon = R2 / (111320 * Math.cos((lat * Math.PI) / 180));
+  const out = [], seen = new Set();
+  for (const T of tables) {
+    let ends = secEnds.get(T);
+    if (!ends) {
+      ends = {};
+      for (let i = 0; i < T.cLa.length; i++) if (T.cKind[i] === 2) ends[T.cSec[i]] = i;
+      secEnds.set(T, ends);
+    }
+    for (let i = 0; i < T.cLa.length; i++) {
+      const la = T.cLa[i], lo = T.cLo[i];
+      if (Math.abs(la - lat) > dLat || Math.abs(lo - lon) > dLon) continue;
+      const key = la.toFixed(5) + ',' + lo.toFixed(5);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const c = { lat: la, lon: lo, kind: T.cKind[i], speed: T.cSpeed[i] || 0, dir: T.cDir?.[i] ?? -1, id: key };
+      if (c.kind === 1 && ends[T.cSec[i]] !== undefined) { const j = ends[T.cSec[i]]; c.end = [T.cLa[j], T.cLo[j]]; }
+      out.push(c);
+    }
+  }
+  return { cams: out, limit: limitHere(keys, lat, lon, heading) };
+}
+
+// Límite de la vía en un punto (solo si el mapa completo ya está cargado: no se carga para esto).
+function limitHere(keys, lat, lon, heading) {
+  const k = keys.find((x) => loaded.has(x));
+  const G = k && loaded.get(k);
+  if (!G?.lim || heading == null) return null;
+  const n = R.nearest(G, lat, lon);
+  if (n.i < 0 || n.d > 40) return null;
+  let best = null, bd = 60;
+  const consider = (u, v, e) => {
+    const b = bearing(G.la[u], G.lo[u], G.la[v], G.lo[v]);
+    const diff = Math.abs(((b - heading + 540) % 360) - 180);
+    if (diff < bd && G.lim[e]) { bd = diff; best = { limit: G.lim[e], inferred: !!G.limInf?.[e] }; }
+  };
+  for (let e = G.off[n.i]; e < G.off[n.i + 1]; e++) consider(n.i, G.tgt[e], e);
+  return best;
 }
 
 // Radares oficiales (DGT, Cataluña, Madrid) publicados junto a la app al generar los paquetes.
