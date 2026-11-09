@@ -122,6 +122,42 @@ map.on('webglcontextrestored', () => { glLost = false; clearTimeout(glTimer); })
 document.addEventListener('visibilitychange', checkGl);
 addEventListener('pageshow', checkGl);
 
+// Al «cerrar» una app web instalada, iOS no la cierra: la congela y libera la memoria gráfica, y al
+// volver el mapa puede quedarse en negro SIN avisar (sin webglcontextlost). Por eso, al volver tras
+// un rato fuera, se repinta el mapa y se comprueba que de verdad ha pintado algo (un píxel opaco en
+// el centro). Si no, se recarga conservando el destino y la navegación.
+let hiddenAt = 0;
+function mapPainted() {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    map.once('render', () => {
+      try {
+        const gl = map.painter?.context?.gl || map.getCanvas().getContext('webgl2') || map.getCanvas().getContext('webgl');
+        if (!gl || gl.isContextLost()) return finish(false);
+        const px = new Uint8Array(4);
+        gl.readPixels(gl.drawingBufferWidth >> 1, gl.drawingBufferHeight >> 1, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        finish(px[3] > 0);
+      } catch { finish(true); } // si no se puede comprobar, no se recarga
+    });
+    map.triggerRepaint();
+    setTimeout(() => finish(!document.hidden ? false : true), 2500); // ni un fotograma en 2,5 s: atascado
+  });
+}
+async function checkAfterResume() {
+  if (document.hidden) { hiddenAt = Date.now(); return; }
+  const away = hiddenAt ? Date.now() - hiddenAt : 0;
+  hiddenAt = 0;
+  if (away < 20000 || !mapReady) return;
+  step(`vuelve tras ${Math.round(away / 1000)} s`);
+  map.resize();
+  if (await mapPainted()) return step('mapa repintado');
+  step('mapa en negro al volver: recargando');
+  reloadKeepingState();
+}
+document.addEventListener('visibilitychange', checkAfterResume);
+addEventListener('pageshow', (e) => { if (e.persisted) { hiddenAt = hiddenAt || Date.now() - 60000; checkAfterResume(); } });
+
 function reloadKeepingState() {
   try {
     sessionStorage.setItem('rumbo:resume', JSON.stringify({
