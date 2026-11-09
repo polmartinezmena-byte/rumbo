@@ -49,3 +49,6 @@ jobs:
           path: _site
       - id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          # La web con todos los paquetes pesa cientos de MB: a veces GitHub tarda más de 10 min en copiarla.
+          timeout: 1800000
