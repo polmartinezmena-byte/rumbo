@@ -16,6 +16,27 @@
     // Red de seguridad: si la app no termina de arrancar (fallo de red, caché rota…), en vez de una
     // pantalla en negro se ofrece recargar o reparar (borra la copia de la app, no tus mapas ni favoritos).
     (function () {
+      // Diagnóstico: cada paso del arranque queda guardado en el dispositivo. Si la app se cierra o se
+      // queda en negro, la próxima vez se ve hasta dónde llegó (Ajustes → Información → Diagnóstico).
+      var log = { t: Date.now(), steps: [] };
+      try {
+        var prev = localStorage.getItem('rumbo:boot');
+        if (prev) localStorage.setItem('rumbo:boot-prev', prev);
+      } catch (e) {}
+      window.rumboStep = function (s) {
+        log.steps.push([String(s).slice(0, 160), Date.now() - log.t]);
+        if (log.steps.length > 60) log.steps.splice(1, 1);
+        try { localStorage.setItem('rumbo:boot', JSON.stringify(log)); } catch (e) {}
+      };
+      rumboStep('html (' + (navigator.standalone || matchMedia('(display-mode: standalone)').matches ? 'app instalada' : 'navegador') + ', sw ' + (navigator.serviceWorker && navigator.serviceWorker.controller ? 'sí' : 'no') + ')');
+      window.addEventListener('error', function (e) {
+        var t = e.target;
+        rumboStep('error: ' + (e.message || (t && (t.src || t.href)) || '?') + (e.filename ? ' @' + e.filename.split('/').pop() + ':' + e.lineno : ''));
+      }, true);
+      window.addEventListener('unhandledrejection', function (e) { rumboStep('promesa: ' + ((e.reason && e.reason.message) || e.reason)); });
+      document.addEventListener('visibilitychange', function () { rumboStep(document.hidden ? 'segundo plano' : 'vuelve'); });
+      window.addEventListener('pageshow', function (e) { if (e.persisted) rumboStep('vuelve (caché)'); });
+
       var shown = false;
       function show(why) {
         if (shown || window.rumboOk) return;
@@ -27,7 +48,10 @@
           '<span style="opacity:.75;max-width:320px">' + (why || 'Puede ser la conexión o una copia antigua de la app.') + '</span>' +
           '<button id="boot-reload" style="font:inherit;padding:12px 22px;border:0;border-radius:12px;background:#2563eb;color:#fff;font-weight:600">Volver a intentar</button>' +
           '<button id="boot-repair" style="font:inherit;padding:10px 18px;border:1px solid #475569;border-radius:12px;background:none;color:#e2e8f0">Reparar la app</button>' +
-          '<small style="opacity:.6;max-width:320px">Reparar descarga otra vez la app. Tus mapas, favoritos y contactos se conservan.</small>';
+          '<small style="opacity:.6;max-width:320px">Reparar descarga otra vez la app. Tus mapas, favoritos y contactos se conservan.</small>' +
+          '<pre style="font:11px ui-monospace,monospace;opacity:.7;max-width:92vw;max-height:30vh;overflow:auto;text-align:left;white-space:pre-wrap">' +
+          log.steps.map(function (s) { return (s[1] / 1000).toFixed(1) + ' s  ' + s[0]; }).join('\n').replace(/</g, '&lt;') + '</pre>';
+        rumboStep('aviso de arranque mostrado');
         (document.body || document.documentElement).appendChild(d);
         document.getElementById('boot-reload').onclick = function () { location.reload(); };
         document.getElementById('boot-repair').onclick = function () {
@@ -38,16 +62,16 @@
         };
       }
       var timer = setTimeout(function () { show(); }, 12000);
-      window.rumboBooted = function () { window.rumboOk = true; clearTimeout(timer); var d = document.getElementById('boot-fail'); if (d) d.remove(); };
+      window.rumboBooted = function () { rumboStep('listo'); window.rumboOk = true; clearTimeout(timer); var d = document.getElementById('boot-fail'); if (d) d.remove(); };
       window.addEventListener('error', function (e) {
         // Solo errores de arranque: si falta MapLibre o falla el módulo principal.
         if (!window.rumboOk && (typeof maplibregl === 'undefined' || /app\.js/.test(e.filename || ''))) setTimeout(function () { show('No se pudo cargar una parte de la app.'); }, 1500);
       }, true);
     })();
   </script>
-  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="vendor/maplibre-gl.css">
   <link rel="stylesheet" href="css/app.css">
-  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="vendor/maplibre-gl.js"></script>
 </head>
 <body>
   <div id="map"></div>
@@ -300,6 +324,8 @@
       <div class="set-list">
         <button class="set link" data-open="credits"><span>Acerca de Rumbo y créditos</span><span class="muted">›</span></button>
         <button class="set link" id="btn-replay-onboarding"><span>Ver la bienvenida otra vez</span><span class="muted">›</span></button>
+        <button class="set link" id="btn-diag"><span>Diagnóstico de arranque</span><span class="muted">›</span></button>
+        <pre id="diag" class="small" hidden style="white-space:pre-wrap;user-select:text;-webkit-user-select:text;font:11px ui-monospace,monospace;max-height:40vh;overflow:auto"></pre>
       </div>
     </div>
 

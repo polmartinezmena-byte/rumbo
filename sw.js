@@ -1,5 +1,5 @@
 // Service worker: la app y el mapa funcionan sin conexión.
-const VERSION = 'v20';
+const VERSION = 'v21';
 const SHELL = `rumbo-shell-${VERSION}`;
 const TILES = 'rumbo-tiles-v1';     // compartida con js/offline-tiles.js
 const RUNTIME = 'rumbo-runtime-v1'; // estilo del mapa y TileJSON
@@ -9,8 +9,7 @@ const SHELL_FILES = [
   './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png',
   './js/app.js', './js/geo.js', './js/db.js', './js/nav.js', './js/offline-tiles.js', './js/graph-worker.js',
   './js/graph-build.js', './js/router.js', './js/flood.js', './js/pack.js', './js/weather.js', './js/radars.js', './js/settings.js', './js/flood-zones.js', './js/live.js', './js/live-route.js', './js/online.js', './js/awake.js', './js/vendor/nosleep-media.js', './js/config.js', './js/native.js', './js/map-offline.js',
-  'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js',
-  'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css',
+  './vendor/maplibre-gl.js', './vendor/maplibre-gl.css',
 ];
 
 const TILE_RE = /^https:\/\/tiles\.openfreemap\.org\/planet\/[^/]+\/(\d+)\/(\d+)\/(\d+)\.pbf/;
@@ -58,13 +57,17 @@ async function networkFirst(req, cacheName, timeoutMs = 4000) {
   }
 }
 
+// Si no hay copia guardada, nunca se espera a la red más de 10 s: una petición colgada dejaría la
+// página sin pintar (pantalla en negro en el iPhone).
+const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+
 async function staleWhileRevalidate(req, cacheName) {
   const cache = await caches.open(cacheName);
   const hit = await cache.match(req, { ignoreSearch: true });
   const net = fetch(req)
     .then((res) => { if (res.ok) cache.put(req, res.clone()); return res; })
-    .catch(() => hit);
-  return hit || net;
+    .catch(() => hit || Response.error());
+  return hit || withTimeout(net, 10000).catch(() => Response.error());
 }
 
 self.addEventListener('fetch', (e) => {
@@ -82,7 +85,7 @@ self.addEventListener('fetch', (e) => {
     if (url.pathname.endsWith('index.json')) e.respondWith(networkFirst(req, RUNTIME));
     return;
   }
-  if (url.origin === location.origin || url.hostname === 'unpkg.com') {
+  if (url.origin === location.origin) {
     if (req.mode === 'navigate') {
       e.respondWith(networkFirst(req, SHELL, 2500).catch(() => caches.match('./index.html')));
       return;

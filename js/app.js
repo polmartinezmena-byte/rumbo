@@ -28,10 +28,14 @@ if ('serviceWorker' in navigator && !NATIVE) {
   });
 }
 
+const step = (x) => globalThis.rumboStep?.(x);
+step('app.js');
+
 // ------------------------------------------------------------------ worker de rutas (RPC)
 const worker = new Worker(new URL('./graph-worker.js', import.meta.url), { type: 'module' });
 let reqId = 0;
 const pending = new Map();
+worker.onerror = (e) => step('worker: ' + (e.message || 'error'));
 worker.onmessage = (e) => {
   const m = e.data;
   const p = pending.get(m.id);
@@ -92,6 +96,7 @@ const view = store.get('view');
 // Estilo y teselas desde la caché propia (funciona sin conexión también en la app nativa).
 registerOfflineProtocol(maplibregl);
 const mapStyle = await offlineStyle().catch(() => STYLE_URL);
+step('estilo del mapa ' + (typeof mapStyle === 'string' ? '(red)' : '(caché)'));
 const map = new maplibregl.Map({
   container: 'map', style: mapStyle,
   center: view?.c || [-3.7038, 40.4168], zoom: view?.z ?? (view ? 13 : 5.2),
@@ -137,6 +142,7 @@ const empty = { type: 'FeatureCollection', features: [] };
 let mapReady = false;
 map.on('load', () => {
   mapReady = true;
+  step('mapa cargado');
   const firstSymbol = map.getStyle().layers.find((l) => l.type === 'symbol')?.id;
   map.addSource('areas', { type: 'geojson', data: empty });
   map.addLayer({ id: 'areas-line', type: 'line', source: 'areas', paint: { 'line-color': '#f59e0b', 'line-width': 1.5, 'line-dasharray': [2, 2] } }, firstSymbol);
@@ -1476,6 +1482,35 @@ function showOnboarding() {
     };
   }
 }
+// Diagnóstico: los pasos de este arranque y del anterior (para saber dónde se queda en negro).
+function bootLog(key) {
+  try {
+    const b = JSON.parse(localStorage.getItem(key));
+    if (!b) return '(nada)';
+    const lines = b.steps.map(([x, ms]) => `${(ms / 1000).toFixed(1).padStart(6)} s  ${x}`);
+    return [new Date(b.t).toLocaleString('es-ES'), ...lines].join('\n');
+  } catch { return '(no se pudo leer)'; }
+}
+$('#btn-diag').onclick = () => {
+  const pre = $('#diag');
+  pre.hidden = !pre.hidden;
+  pre.textContent = `Rumbo ${APP_VERSION} · ${navigator.userAgent}
+
+ARRANQUE ANTERIOR
+${bootLog('rumbo:boot-prev')}
+
+ESTE ARRANQUE
+${bootLog('rumbo:boot')}`;
+  navigator.clipboard?.writeText(pre.textContent).then(() => toast('Diagnóstico copiado: pégamelo en el chat'), () => {});
+};
+// Si el arranque anterior no llegó a «listo», se avisa (sirve para encontrar la pantalla en negro).
+try {
+  const prev = JSON.parse(localStorage.getItem('rumbo:boot-prev'));
+  if (prev && !prev.steps.some(([x]) => x === 'listo')) {
+    setTimeout(() => toast('La última vez Rumbo no terminó de arrancar. Ajustes ⚙ → Información → Diagnóstico de arranque', 8000), 2500);
+  }
+} catch { /* nada */ }
+
 $('#btn-replay-onboarding').onclick = () => { setSheet(null); showOnboarding(); };
 
 // ================================================================== ARRANQUE
@@ -1484,8 +1519,10 @@ let resume = null;
 try { resume = JSON.parse(sessionStorage.getItem('rumbo:resume')); sessionStorage.removeItem('rumbo:resume'); } catch { /* nada */ }
 if (resume && Date.now() - resume.t > 10 * 60 * 1000) resume = null;
 
+step('pidiendo datos guardados');
 call('init').then(async (c) => {
   catalog = c;
+  step(`datos guardados: ${Object.keys(c).join(', ') || 'sin mapas'}`);
   drawAreas();
   refreshLiveLayer(); // con los datos en directo guardados, antes de actualizarlos
   refreshLive();

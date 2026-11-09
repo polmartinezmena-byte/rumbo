@@ -9,15 +9,9 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = join(ROOT, 'www');
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT);
-for (const f of ['index.html', 'privacidad.html', 'icon.svg', 'manifest.webmanifest', 'css', 'js', 'icons']) {
+for (const f of ['index.html', 'privacidad.html', 'icon.svg', 'manifest.webmanifest', 'css', 'js', 'icons', 'vendor']) {
   cpSync(join(ROOT, f), join(OUT, f), { recursive: true });
 }
-// MapLibre dentro de la app (en la web se usa el CDN): así arranca sin conexión.
-mkdirSync(join(OUT, 'vendor'));
-for (const f of ['maplibre-gl.js', 'maplibre-gl.css']) cpSync(join(ROOT, 'node_modules/maplibre-gl/dist', f), join(OUT, 'vendor', f));
-const html = readFileSync(join(OUT, 'index.html'), 'utf8')
-  .replace('https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css', 'vendor/maplibre-gl.css')
-  .replace('https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js', 'vendor/maplibre-gl.js');
-if (!html.includes('vendor/maplibre-gl.js')) throw new Error('index.html: no se encontró la URL de MapLibre');
-writeFileSync(join(OUT, 'index.html'), html);
+// MapLibre va en vendor/ (mismo origen que la app): arranca sin depender de un CDN.
+if (!readFileSync(join(OUT, 'index.html'), 'utf8').includes('vendor/maplibre-gl.js')) throw new Error('index.html: falta vendor/maplibre-gl.js');
 console.log('www/ lista');
