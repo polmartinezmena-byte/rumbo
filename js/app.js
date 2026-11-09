@@ -470,6 +470,18 @@ $('#q').addEventListener('keydown', (e) => {
   if (e.key === 'Escape') { $('#results').hidden = true; e.target.blur(); }
 });
 
+// El buscador está abajo: cuando sale el teclado del móvil, sube con él para no quedar tapado.
+if (globalThis.visualViewport) {
+  const vv = visualViewport;
+  const lift = () => {
+    const kb = Math.max(0, innerHeight - vv.height - vv.offsetTop);
+    document.documentElement.style.setProperty('--kb', `${kb > 80 ? Math.round(kb) : 0}px`);
+  };
+  vv.addEventListener('resize', lift);
+  vv.addEventListener('scroll', lift);
+  $('#q').addEventListener('blur', () => setTimeout(lift, 300));
+}
+
 let searchSeq = 0;
 async function runSearch() {
   const q = $('#q').value.trim();
