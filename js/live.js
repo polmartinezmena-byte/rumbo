@@ -20,12 +20,12 @@ export const FUELS = {
   glp: { label: 'GLP', field: 'Precio Gases licuados del petróleo' },
 };
 
-const MAX_AGE = { inc: 10 * 60e3, zbe: 24 * 3600e3, fuel: 6 * 3600e3, avisos: 10 * 60e3 };
+const MAX_AGE = { inc: 10 * 60e3, zbe: 24 * 3600e3, fuel: 6 * 3600e3, avisos: 10 * 60e3, traf: 8 * 60e3 };
 
-export const live = { inc: null, zbe: null, fuel: null, avisos: null, version: 0 };
+export const live = { inc: null, zbe: null, fuel: null, avisos: null, traf: null, version: 0 };
 
 export async function loadCached() {
-  for (const k of ['inc', 'zbe', 'fuel', 'avisos']) live[k] = (await db.get('live:' + k)) || null;
+  for (const k of ['inc', 'zbe', 'fuel', 'avisos', 'traf']) live[k] = (await db.get('live:' + k)) || null;
   live.version++;
   return summary();
 }
@@ -36,6 +36,7 @@ export function summary() {
     zbe: live.zbe && { at: live.zbe.at, updated: live.zbe.updated, n: live.zbe.zones.length },
     fuel: live.fuel && { at: live.fuel.at, date: live.fuel.date, n: live.fuel.la.length },
     avisos: live.avisos && { at: live.avisos.at, updated: live.avisos.updated, n: activeWarnings().length },
+    traf: live.traf && { at: live.traf.at, updated: live.traf.updated, n: live.traf.items.length },
   };
 }
 
@@ -67,6 +68,16 @@ export async function refresh(force = false, onProgress) {
       changed = true;
     } catch (e) { errors.zbe = e.message; }
   }
+  // Tráfico en directo de Madrid y Barcelona (los datos de más de 40 min no se usan: ya no son «ahora»).
+  if (force || stale('traf')) {
+    try {
+      const j = await getJson(DATA_BASE + 'trafico.json');
+      live.traf = { at: Date.now(), updated: j.updated, items: j.items || [] };
+      await db.set('live:traf', live.traf);
+      changed = true;
+    } catch (e) { errors.traf = e.message; }
+  }
+  if (live.traf && Date.parse(live.traf.updated) < Date.now() - 40 * 60e3) live.traf = { ...live.traf, items: [] };
   if (force || stale('avisos')) {
     try {
       const j = await getJson(DATA_BASE + 'avisos.json');

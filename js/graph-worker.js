@@ -17,6 +17,7 @@ import {
   zoneAt, zonesAlong, zbeOnCoords, bannedZones, closuresOnRoute,
 } from './live-route.js';
 import { trafficProfile, trafficFactor } from './traffic.js';
+import { applyLiveTraffic } from './live-traffic.js';
 import { isOnline, onlineRoute, annotate, searchOnline, nearbyOnline } from './online.js';
 import { activeWarnings } from './live.js';
 import { PACKS } from './config.js';
@@ -41,7 +42,13 @@ self.onmessage = async (e) => {
       case 'download': result = await downloadArea(e.data.bbox, id); break;
       case 'installPack': result = await installPack(e.data, id); break;
       case 'remove': result = await remove(e.data.key); break;
-      case 'route': result = await routeAny(e.data.from, e.data.to, e.data.level || 0, e.data.avoidTolls, e.data.opts || {}); break;
+      case 'route': {
+        const o = e.data.opts || {};
+        result = await routeAny(e.data.from, e.data.to, e.data.level || 0, e.data.avoidTolls, o);
+        // Tráfico en directo encima del típico de la hora (si está activado y no vas a pie).
+        if (o.traffic && !o.foot) { applyLiveTraffic(result, live); for (const a of result.alts || []) applyLiveTraffic(a, live); }
+        break;
+      }
       case 'liveRefresh': result = await refreshLive(e.data.force, (m) => progress(id, m, 0.5)); break;
       case 'liveSummary': result = liveSummary(); break;
       case 'liveLayer': result = liveLayer(live, e.data.bbox, e.data.fuel, e.data.sticker); break;
@@ -264,7 +271,7 @@ async function routeAny(from, to, level, avoidTolls = false, opts = {}) {
   for (const key of keys) {
     try {
       const G = await graph(key);
-      const pen = foot ? null : penalties(G, live, { sticker: opts.sticker || '', avoidZbe: opts.avoidZbe !== false, now });
+      const pen = foot ? null : penalties(G, live, { sticker: opts.sticker || '', avoidZbe: opts.avoidZbe !== false, now, traffic: !!opts.traffic });
       // ---- ZBE donde tu etiqueta no puede entrar: la ruta nunca te mete dentro.
       const zbeFix = foot ? null : zbeGuard(G, live, from, to, opts, now);
       if (zbeFix?.to) to = zbeFix.to;

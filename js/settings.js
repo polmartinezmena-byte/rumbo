@@ -2,6 +2,7 @@
 const KEY = 'rumbo:settings';
 
 export const DEFAULTS = {
+  lang: 'auto',              // idioma: auto (el del teléfono) | es | ca | en
   voice: true,               // indicaciones por voz
   alertFixed: true,          // radares fijos
   alertSection: true,        // radares de tramo

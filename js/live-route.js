@@ -5,6 +5,7 @@
 import { fastDist } from './geo.js';
 import { zoneActive, FUELS, activeWarnings } from './live.js';
 import { nearest } from './router.js';
+import { liveTrafficItems, liveEdgePenalty } from './live-traffic.js';
 
 const M = 111320;
 
@@ -114,7 +115,7 @@ function distToSegment(lat, lon, a, b) {
  * @param opts { sticker: 'A'|'B'|'C'|'ECO'|'0'|'' , avoidZbe: boolean, now: Date }
  */
 export function penalties(G, live, opts) {
-  const key = `${live.version}|${opts.sticker}|${opts.avoidZbe}|${new Date(opts.now).getHours()}`;
+  const key = `${live.version}|${opts.sticker}|${opts.avoidZbe}|${new Date(opts.now).getHours()}|${!!opts.traffic}`;
   if (G._penKey === key) return G._pen;
   const m = G.tgt.length;
   let pen = null;
@@ -159,6 +160,11 @@ export function penalties(G, live, opts) {
         }
       });
     }
+  }
+  // Atascos fuertes en directo: las rutas los evitan si hay alternativa razonable.
+  if (opts.traffic) {
+    const items = liveTrafficItems(live).filter((x) => x.l >= 2 && x.p.some((q) => q[0] >= G.bbox.s && q[0] <= G.bbox.n && q[1] >= G.bbox.w && q[1] <= G.bbox.e));
+    if (items.length) liveEdgePenalty(G, items, nodeGrid(G).near, ensure);
   }
   G._pen = pen;
   G._penKey = key;

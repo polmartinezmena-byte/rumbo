@@ -156,26 +156,8 @@ export async function annotate(route) {
 }
 
 // ------------------------------------------------------------------ búsqueda de direcciones
-export async function searchOnline(q, near) {
-  const u = new URL(PHOTON);
-  u.searchParams.set('q', q);
-  u.searchParams.set('limit', '10');
-  if (near) { u.searchParams.set('lat', near[0].toFixed(4)); u.searchParams.set('lon', near[1].toFixed(4)); }
-  const r = await fetch(u, { signal: AbortSignal.timeout(6000) });
-  if (!r.ok) return [];
-  const j = await r.json();
-  return (j.features || []).map((f) => {
-    const p = f.properties;
-    const street = p.street ? `${p.street}${p.housenumber ? ' ' + p.housenumber : ''}` : '';
-    const name = p.name || street || p.city || '';
-    const where = [p.name && street, p.city !== name && p.city, p.state].filter(Boolean).join(', ');
-    return { name, kind: where || 'Lugar', lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], online: true };
-  }).filter((x) => x.name)
-    // Photon apenas tiene en cuenta la cercanía: se mezcla su orden con la distancia (5 km ≈ un puesto).
-    .map((x, i) => ({ x, s: i + (near ? haversine(near[0], near[1], x.lat, x.lon) / 5000 : 0) }))
-    .sort((a, b) => a.s - b.s)
-    .map(({ x }) => x);
-}
+// Búsqueda de direcciones, negocios y categorías: js/search-online.js
+export { searchOnline } from './search-online.js';
 
 // ------------------------------------------------------------------ servicios cercanos (SOS)
 // Photon responde en menos de un segundo; Overpass solo se usa si Photon no encuentra nada (puede tardar).

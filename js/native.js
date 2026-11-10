@@ -9,10 +9,10 @@ const isNative = () => !!globalThis.Capacitor?.isNativePlatform?.();
  * Voz. El WebView de Android no implementa speechSynthesis: en la app se usa el motor de voz del
  * sistema (plugin TextToSpeech). Devuelve true si la ha usado.
  */
-export function nativeSpeak(text) {
+export function nativeSpeak(text, lang = 'es-ES') {
   const tts = isNative() && plugins().TextToSpeech;
   if (!tts) return false;
-  tts.stop().catch(() => {}).finally(() => tts.speak({ text, lang: 'es-ES', rate: 1.0, pitch: 1.0, volume: 1.0, category: 'playback' }).catch(() => {}));
+  tts.stop().catch(() => {}).finally(() => tts.speak({ text, lang, rate: 1.0, pitch: 1.0, volume: 1.0, category: 'playback' }).catch(() => {}));
   return true;
 }
 

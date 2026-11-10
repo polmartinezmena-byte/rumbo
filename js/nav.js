@@ -4,6 +4,7 @@ import { bearing, fmtDistSpeech } from './geo.js';
 import { settings } from './settings.js';
 import { nativeSpeak, nativeStop } from './native.js';
 import { lanesSpeech } from './lanes.js';
+import { t, LANG, voiceLang } from './i18n.js';
 
 const RAD = Math.PI / 180;
 const M_PER_DEG = 111320;
@@ -68,12 +69,14 @@ export function speak(text, kind = 'info') {
   say(text);
 }
 function say(text) {
-  if (nativeSpeak(text)) return; // app Android/iOS: motor de voz del sistema
+  text = t(text);
+  if (nativeSpeak(text, voiceLang())) return; // app Android/iOS: motor de voz del sistema
   if (!('speechSynthesis' in globalThis)) return;
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
-  u.lang = 'es-ES';
-  const voice = speechSynthesis.getVoices().find((v) => v.lang?.startsWith('es'));
+  u.lang = voiceLang();
+  const voices = speechSynthesis.getVoices();
+  const voice = voices.find((v) => v.lang?.replace('_', '-') === u.lang) || voices.find((v) => v.lang?.startsWith(LANG));
   if (voice) u.voice = voice;
   speechSynthesis.speak(u);
 }

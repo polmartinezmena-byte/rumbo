@@ -43,6 +43,7 @@ jobs:
           cd out
           git init -q -b datos
           git add incidencias.json zbe.json
+          [ -s trafico.json ] && git add trafico.json || true
           [ -s avisos.json ] && git add avisos.json || true
           git -c user.name="rumbo-datos" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
             commit -qm "Datos DGT $(date -u +%Y-%m-%dT%H:%MZ)"

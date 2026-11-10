@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Datos «en directo» que el navegador no puede pedir por sí mismo (las fuentes no permiten CORS):
 //   · incidencias.json — cortes, obras, accidentes y retenciones de la DGT (DATEX II v3.7, cada 15 min)
+//   · trafico.json     — tráfico en directo de Madrid (sensores) y Barcelona (tramos), cada 15 min
 //   · zbe.json         — Zonas de Bajas Emisiones oficiales de la DGT (DATEX II, una vez al día)
 // Un workflow los publica en la rama «datos», que la app lee desde raw.githubusercontent.com.
 //
@@ -56,7 +57,64 @@ export function parseIncidents(xml) {
       town: tag(rec, 'lse:municipality') || '',
       pk: num(tag(rec, 'lse:kilometerPoint')),
       det: detail.split(' ').filter((d) => d !== kind).slice(0, 2).join(' '),
+      // Retenciones: 1 lento, 2 en cola, 3 parado
+      ...(kind === 'retencion' ? { lvl: { stationaryTraffic: 3, queuingTraffic: 2 }[tag(rec, 'sit:abnormalTrafficType')] || 1 } : {}),
     });
+  }
+  return out;
+}
+
+// ------------------------------------------------------------------ tráfico en directo (ciudades)
+// Nivel común: 1 denso/lento, 2 muy denso/retención, 3 congestión/cortado. Solo se guarda lo que no es fluido.
+const MADRID_PM = 'https://informo.madrid.es/informo/tmadrid/pm.xml'; // Ayto. de Madrid, cada 5 min
+const BCN_STATE = 'https://opendata-ajuntament.barcelona.cat/data/dataset/8319c2b1-4c21-4962-9acd-6db4c5ff1148/resource/2d456eb5-4ea6-4f68-9794-2f3f1a58a933/download';
+const BCN_TRAMS = 'https://opendata-ajuntament.barcelona.cat/data/dataset/1090983a-1c40-4609-8620-14ad49aae3ab/resource/1d6c814c-70ef-4147-aa16-a49ddb952f72/download/transit_relacio_trams.csv';
+
+/** UTM (huso 30, ETRS89 ≈ WGS84) → [lat, lon]. */
+export function utmToLatLon(x, y, zone = 30) {
+  const a = 6378137, f = 1 / 298.257222101, k0 = 0.9996, e2 = f * (2 - f), ep2 = e2 / (1 - e2);
+  const e1 = (1 - Math.sqrt(1 - e2)) / (1 + Math.sqrt(1 - e2));
+  const M = y / k0, mu = M / (a * (1 - e2 / 4 - (3 * e2 * e2) / 64 - (5 * e2 ** 3) / 256));
+  const p1 = mu + (1.5 * e1 - (27 / 32) * e1 ** 3) * Math.sin(2 * mu) + ((21 / 16) * e1 * e1 - (55 / 32) * e1 ** 4) * Math.sin(4 * mu)
+    + ((151 / 96) * e1 ** 3) * Math.sin(6 * mu) + ((1097 / 512) * e1 ** 4) * Math.sin(8 * mu);
+  const N1 = a / Math.sqrt(1 - e2 * Math.sin(p1) ** 2), T1 = Math.tan(p1) ** 2, C1 = ep2 * Math.cos(p1) ** 2;
+  const R1 = (a * (1 - e2)) / (1 - e2 * Math.sin(p1) ** 2) ** 1.5, D = (x - 500000) / (N1 * k0);
+  const lat = p1 - ((N1 * Math.tan(p1)) / R1) * (D * D / 2 - ((5 + 3 * T1 + 10 * C1 - 4 * C1 * C1 - 9 * ep2) * D ** 4) / 24
+    + ((61 + 90 * T1 + 298 * C1 + 45 * T1 * T1 - 252 * ep2 - 3 * C1 * C1) * D ** 6) / 720);
+  const lon = (D - ((1 + 2 * T1 + C1) * D ** 3) / 6 + ((5 - 2 * C1 + 28 * T1 - 3 * C1 * C1 + 8 * ep2 + 24 * T1 * T1) * D ** 5) / 120) / Math.cos(p1);
+  return [r5((lat * 180) / Math.PI), r5(zone * 6 - 183 + (lon * 180) / Math.PI)];
+}
+
+const DIRS = { 'N-S': 180, 'S-N': 0, 'E-O': 270, 'O-E': 90, 'NE-SO': 225, 'SO-NE': 45, 'NO-SE': 135, 'SE-NO': 315 };
+export function parseMadrid(xml) {
+  const out = [];
+  for (const pm of xml.split('<pm>').slice(1)) {
+    const lvl = +tag(pm, 'nivelServicio');
+    if (!(lvl >= 1) || tag(pm, 'error') !== 'N') continue;
+    const x = num(tag(pm, 'st_x')?.replace(',', '.')), y = num(tag(pm, 'st_y')?.replace(',', '.'));
+    if (!(x > 0 && y > 0)) continue;
+    const d = (tag(pm, 'descripcion') || '').match(/\b(N-S|S-N|E-O|O-E|NE-SO|SO-NE|NO-SE|SE-NO)\b/)?.[1];
+    out.push({ p: [utmToLatLon(x, y)], l: Math.min(3, lvl), ...(d ? { b: DIRS[d] } : {}) });
+  }
+  return out;
+}
+
+export function parseBarcelona(stateTxt, tramsCsv) {
+  const geo = new Map();
+  for (const line of tramsCsv.split(/\r?\n/).slice(1)) {
+    const m = line.match(/^(\d+),"[^"]*","([^"]+)"/);
+    if (!m) continue;
+    const n = m[2].split(',').map(Number), pts = [];
+    for (let i = 0; i + 1 < n.length; i += 2) pts.push([r5(n[i + 1]), r5(n[i])]);
+    if (pts.length >= 2) geo.set(+m[1], pts);
+  }
+  // 0 sin datos · 1 muy fluido · 2 fluido · 3 denso · 4 muy denso · 5 congestión · 6 cortado
+  const L = { 3: 1, 4: 2, 5: 3, 6: 3 };
+  const out = [];
+  for (const line of stateTxt.split(/\r?\n/)) {
+    const [id, , now] = line.split('#');
+    const l = L[+now], p = geo.get(+id);
+    if (l && p) out.push({ p, l });
   }
   return out;
 }
@@ -184,6 +242,13 @@ if (import.meta.url === `file://${process.argv[1].replace(/\\/g, '/')}` || proce
   const counts = inc.reduce((a, x) => ((a[x.k] = (a[x.k] || 0) + 1), a), {});
   writeFileSync(join(OUT, 'incidencias.json'), JSON.stringify({ updated: new Date().toISOString(), source: 'DGT · NAP (CC BY 4.0)', items: inc }));
   console.log(`incidencias.json: ${inc.length}`, counts);
+
+  const traf = [];
+  try { traf.push(...parseMadrid(await get(MADRID_PM))); } catch (e) { console.log('Madrid no disponible:', e.message); }
+  const nMad = traf.length;
+  try { traf.push(...parseBarcelona(await get(BCN_STATE), await get(BCN_TRAMS))); } catch (e) { console.log('Barcelona no disponible:', e.message); }
+  writeFileSync(join(OUT, 'trafico.json'), JSON.stringify({ updated: new Date().toISOString(), source: 'Ayuntamiento de Madrid · Ajuntament de Barcelona (CC BY 4.0)', items: traf }));
+  console.log(`trafico.json: ${nMad} puntos en Madrid, ${traf.length - nMad} tramos en Barcelona`);
 
   // Avisos de AEMET: solo si existe la clave (secreto AEMET_API_KEY). Sin clave no se toca el fichero.
   if (process.env.AEMET_API_KEY) {

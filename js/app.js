@@ -11,6 +11,7 @@ import { LANE_ANGLE } from './lanes.js';
 import { brandStyle } from './map-brand.js';
 import { autoIconize, drawIcon } from './icons.js';
 import { ART, emptyState } from './illustrations.js';
+import { initI18n, t } from './i18n.js';
 import { markerSvg, MARKER_ICONS, MARKER_COLORS } from './markers.js';
 import { offlineStyle, registerOfflineProtocol } from './map-offline.js';
 
@@ -36,12 +37,13 @@ if ('serviceWorker' in navigator && !NATIVE) {
 
 const step = (x) => globalThis.rumboStep?.(x);
 step('app.js');
+await initI18n().catch(() => {});
 
 // ------------------------------------------------------------------ worker de rutas (RPC)
 const worker = new Worker(new URL('./graph-worker.js', import.meta.url), { type: 'module' });
 let reqId = 0;
 const pending = new Map();
-worker.onerror = (e) => step('worker: ' + (e.message || 'error'));
+worker.onerror = (e) => { step('worker: ' + (e.message || 'error')); globalThis.rumboErr?.('worker: ' + (e.message || 'error'), (e.filename || '').split('/').pop() + ':' + (e.lineno || '')); };
 worker.onmessage = (e) => {
   const m = e.data;
   const p = pending.get(m.id);
@@ -825,8 +827,13 @@ function renderLiveNotes() {
   if (!route) return;
   const out = [];
   // Tráfico típico de esta hora (estimación por franja horaria, no tráfico en directo).
-  const tr = route.traffic;
-  if (tr && tr.delay >= 90) out.push(note(tr.delay >= 600 ? 'warn' : 'info', `Tráfico típico a esta hora (${tr.label}): unos <b>${Math.round(tr.delay / 60)} min</b> más que con vía libre. Es una estimación por franja horaria, no tráfico en directo.`));
+  const tr = route.traffic, lt = route.liveTraffic;
+  if (lt && lt.delay >= 30) {
+    const what = lt.worst >= 3 ? 'atascos' : lt.worst >= 2 ? 'retenciones' : 'tráfico denso';
+    const ago = lt.updated ? Math.max(1, Math.round((Date.now() - Date.parse(lt.updated)) / 60000)) : null;
+    out.push(note(lt.delay >= 300 ? 'warn' : 'info', `<b>Tráfico en directo:</b> ${what} en ${fmtDist(lt.len)} de tu ruta, unos <b>${Math.max(1, Math.round(lt.delay / 60))} min</b> más. Ya está contado en la hora de llegada.${ago ? ` <small>Datos de hace ${ago} min.</small>` : ''}`));
+  }
+  if (tr && tr.delay - (lt?.delay || 0) >= 90) out.push(note(tr.delay >= 600 ? 'warn' : 'info', `Tráfico típico a esta hora (${tr.label}): unos <b>${Math.round((tr.delay - (lt?.delay || 0)) / 60)} min</b> más que con vía libre.${lt ? '' : ' Es una estimación por franja horaria; el tráfico en directo solo está en carreteras de la DGT, Madrid y Barcelona.'}`));
   // ZBE: agrupadas por nombre (una zona puede aparecer en varios trozos)
   const byZone = new Map();
   for (const z of route.zbe || []) {
@@ -1041,7 +1048,8 @@ function refreshCameras() {
   clearTimeout(camTimer);
   camTimer = setTimeout(async () => {
     if (!mapReady || !(hasMaps() || navigator.onLine) || map.getZoom() < 10 || !worthRefreshing('cams')) return;
-    map.getSource('cameras').setData(await call('cameras', { bbox: visibleBbox() }));
+    const data = await call('cameras', { bbox: visibleBbox() });
+    map.getSource('cameras')?.setData(data); // al cambiar el estilo de día/noche la capa tarda un momento en volver
   }, 250);
 }
 
@@ -1972,7 +1980,8 @@ $('#btn-fav-dest').onclick = () => {
 };
 
 // ================================================================== AJUSTES
-const APP_VERSION = '0.7.1';
+const APP_VERSION = '0.8.0';
+globalThis.RUMBO_VERSION = APP_VERSION;
 
 function renderSettings() {
   $$('#sheet-settings input.switch').forEach((i) => (i.checked = !!settings[i.dataset.set]));
@@ -2026,6 +2035,8 @@ $$('#sheet-settings .seg[data-seg]').forEach((seg) => seg.querySelectorAll('butt
   const cur = settings[seg.dataset.seg];
   setSetting(seg.dataset.seg, typeof cur === 'number' ? Number(b.dataset.v) : b.dataset.v);
   renderSettings();
+  // El idioma se aplica recargando (se conserva la ruta).
+  if (seg.dataset.seg === 'lang' && b.dataset.v !== cur) setTimeout(reloadKeepingState, 250);
 })));
 $('#set-emergency').onchange = (e) => {
   const v = e.target.value.replace(/[^\d]/g, '');
@@ -2144,6 +2155,34 @@ function bootLog(key) {
     return [new Date(b.t).toLocaleString('es-ES'), ...lines].join('\n');
   } catch { return '(no se pudo leer)'; }
 }
+// Informe de errores: lo que ha fallado en este dispositivo. No se envía solo: tú decides compartirlo.
+const errList = () => { try { return JSON.parse(localStorage.getItem('rumbo:errors') || '[]'); } catch { return []; } };
+function renderErrCount() {
+  const n = errList().length;
+  $('#err-count').textContent = n ? `${n} ${n === 1 ? 'error guardado' : 'errores guardados'}` : 'Ningún error';
+}
+function errReport() {
+  const list = errList();
+  return `Rumbo ${APP_VERSION} · ${navigator.userAgent}\n\n` + (list.length
+    ? list.map((e) => `${new Date(e.t).toLocaleString('es-ES')}${e.n > 1 ? ` (×${e.n})` : ''} · v${e.v || '?'}\n  ${e.m}${e.w ? `\n  @ ${e.w}` : ''}`).join('\n')
+    : 'Sin errores.');
+}
+$('#btn-errors').onclick = () => {
+  const box = $('#err-box');
+  box.hidden = !box.hidden;
+  $('#err-pre').textContent = errReport();
+  renderErrCount();
+};
+$('#btn-err-share').onclick = async () => {
+  const text = errReport() + '\n\nDIAGNÓSTICO DE ARRANQUE\n' + bootLog('rumbo:boot');
+  try {
+    if (navigator.share) await navigator.share({ title: 'Informe de errores de Rumbo', text });
+    else { await navigator.clipboard.writeText(text); toast('Informe copiado'); }
+  } catch { /* cancelado */ }
+};
+$('#btn-err-clear').onclick = () => { localStorage.removeItem('rumbo:errors'); $('#err-pre').textContent = errReport(); renderErrCount(); toast('Informe borrado'); };
+renderErrCount();
+
 $('#btn-diag').onclick = () => {
   const pre = $('#diag');
   pre.hidden = !pre.hidden;
