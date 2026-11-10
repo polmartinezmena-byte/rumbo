@@ -1,5 +1,5 @@
 // Service worker: la app y el mapa funcionan sin conexión.
-const VERSION = 'v26';
+const VERSION = 'v27';
 const SHELL = `rumbo-shell-${VERSION}`;
 const TILES = 'rumbo-tiles-v1';     // compartida con js/offline-tiles.js
 const RUNTIME = 'rumbo-runtime-v1'; // estilo del mapa y TileJSON
@@ -51,7 +51,7 @@ async function networkFirst(req, cacheName, timeoutMs = 4000) {
     if (res.ok) cache.put(req, res.clone());
     return res;
   } catch (err) {
-    const hit = await cache.match(req);
+    const hit = await matchQuick(cache, req);
     if (hit) return hit;
     throw err;
   }
@@ -59,11 +59,13 @@ async function networkFirst(req, cacheName, timeoutMs = 4000) {
 
 // Si no hay copia guardada, nunca se espera a la red más de 10 s: una petición colgada dejaría la
 // página sin pintar (pantalla en negro en el iPhone).
+// La caché tampoco puede bloquear: si no contesta en 3 s, se va a la red.
+const matchQuick = (cache, req, opts) => Promise.race([cache.match(req, opts), new Promise((r) => setTimeout(() => r(undefined), 3000))]);
 const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
 
 async function staleWhileRevalidate(req, cacheName) {
   const cache = await caches.open(cacheName);
-  const hit = await cache.match(req, { ignoreSearch: true });
+  const hit = await matchQuick(cache, req, { ignoreSearch: true });
   const net = fetch(req)
     .then((res) => { if (res.ok) cache.put(req, res.clone()); return res; })
     .catch(() => hit || Response.error());

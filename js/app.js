@@ -165,6 +165,16 @@ function reloadKeepingState() {
       dest, origin, nav: !!nav && !simTimer, walking, t: Date.now(),
     }));
   } catch { /* sin almacenamiento: se recarga igualmente */ }
+  // Tras congelar la app, iOS a veces no despierta bien el service worker y la recarga se queda en
+  // blanco esperándolo. Con conexión se recarga sin él (se vuelve a registrar al arrancar).
+  const sw = navigator.serviceWorker;
+  if (navigator.onLine && sw?.controller) {
+    step('recargando sin service worker');
+    const go = () => location.reload();
+    const t = setTimeout(go, 1500);
+    sw.getRegistrations().then((rs) => Promise.all(rs.map((r) => r.unregister()))).catch(() => {}).finally(() => { clearTimeout(t); go(); });
+    return;
+  }
   location.reload();
 }
 map.on('moveend', () => {
