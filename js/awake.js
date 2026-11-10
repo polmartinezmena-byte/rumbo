@@ -21,7 +21,7 @@ function makeVideo() {
   v.setAttribute('aria-hidden', 'true');
   v.muted = true;
   v.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none;';
-  for (const [type, src] of [['webm', media.webm], ['mp4', media.mp4]]) {
+  for (const [type, src] of [['mp4', media.mp4], ['webm', media.webm]]) {
     const s = document.createElement('source');
     s.src = src;
     s.type = `video/${type}`;

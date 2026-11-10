@@ -1,5 +1,5 @@
 // Service worker: la app y el mapa funcionan sin conexión.
-const VERSION = 'v36';
+const VERSION = 'v37';
 const SHELL = `rumbo-shell-${VERSION}`;
 const TILES = 'rumbo-tiles-v1';     // compartida con js/offline-tiles.js
 const RUNTIME = 'rumbo-runtime-v1'; // estilo del mapa y TileJSON
@@ -72,6 +72,15 @@ async function staleWhileRevalidate(req, cacheName) {
   return hit || withTimeout(net, 10000).catch(() => Response.error());
 }
 
+async function openShell(req) {
+  const cache = await caches.open(SHELL);
+  const hit = (await matchQuick(cache, req, { ignoreSearch: true })) || (await matchQuick(cache, './index.html'));
+  const net = fetch(req, { cache: 'no-cache' })
+    .then((res) => { if (res.ok) { const c = res.clone(); cache.put(req, res.clone()); cache.put('./index.html', c); } return res; });
+  if (hit) { net.catch(() => {}); return hit; }
+  return withTimeout(net, 10000);
+}
+
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
@@ -89,7 +98,9 @@ self.addEventListener('fetch', (e) => {
   }
   if (url.origin === location.origin) {
     if (req.mode === 'navigate') {
-      e.respondWith(networkFirst(req, SHELL, 2500).catch(() => caches.match('./index.html')));
+      // Al abrir la app se enseña al momento la copia guardada y se actualiza por detrás (la versión
+      // nueva entra en la siguiente apertura). Esperar a la red dejaba la pantalla en negro ~10 s.
+      e.respondWith(openShell(req));
       return;
     }
     e.respondWith(staleWhileRevalidate(req, SHELL));

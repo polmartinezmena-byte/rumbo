@@ -1972,7 +1972,7 @@ $('#btn-fav-dest').onclick = () => {
 };
 
 // ================================================================== AJUSTES
-const APP_VERSION = '0.7.0';
+const APP_VERSION = '0.7.1';
 
 function renderSettings() {
   $$('#sheet-settings input.switch').forEach((i) => (i.checked = !!settings[i.dataset.set]));

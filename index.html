@@ -39,6 +39,11 @@
         if (log.steps.length > 60) log.steps.splice(1, 1);
         try { localStorage.setItem('rumbo:boot', JSON.stringify(log)); } catch (e) {}
       };
+      // Cuánto tardó en llegar la página desde que tocaste el icono (antes de que corra nada de la app).
+      try {
+        var n = performance.getEntriesByType('navigation')[0];
+        if (n) rumboStep('página: llega en ' + Math.round(n.responseStart) + ' ms (worker ' + Math.round(n.workerStart || 0) + ' ms, ' + n.type + ')');
+      } catch (e) {}
       rumboStep('html (' + (navigator.standalone || matchMedia('(display-mode: standalone)').matches ? 'app instalada' : 'navegador') + ', sw ' + (navigator.serviceWorker && navigator.serviceWorker.controller ? 'sí' : 'no') + ')');
       window.addEventListener('error', function (e) {
         var t = e.target;
