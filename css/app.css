@@ -483,3 +483,28 @@ body.free-drive:not(.navigating):not(.has-sheet) .speed { bottom: calc(96px + va
 .b-lanes .lane.ok { color: #fff; background: rgba(255, 255, 255, 0.16); }
 .b-lanes svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
 body.free-drive:not(.navigating) .banner #b-lanes { display: none !important; }
+
+/* ---------- v12: pantalla de inicio (atajos y tarjeta de descarga) ---------- */
+.quick { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding: 2px 2px 4px; margin: 0 -2px; -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent); mask-image: linear-gradient(90deg, #000 88%, transparent); }
+.quick::-webkit-scrollbar { display: none; }
+.qchip { flex: none; display: inline-flex; align-items: center; gap: 7px; height: 40px; padding: 0 14px 0 11px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--glass-strong); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); box-shadow: var(--shadow);
+  color: var(--text); font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: transform 0.12s var(--ease); }
+.qchip:active { transform: scale(0.96); }
+.qchip .ico { width: 18px; height: 18px; color: var(--primary); }
+.qchip span { max-width: 9em; overflow: hidden; text-overflow: ellipsis; }
+.dl-card { display: flex; align-items: center; gap: 12px; padding: 10px 6px 10px 12px; border-radius: var(--r-lg); border: 1px solid var(--line);
+  background: var(--glass-strong); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); box-shadow: var(--shadow); }
+.dl-card .dl-ico { width: 40px; height: 40px; border-radius: 12px; background: var(--primary-soft); color: var(--primary); display: grid; place-items: center; flex: none; }
+.dl-card .meta { flex: 1; min-width: 0; }
+.dl-card .meta b { display: block; font-weight: 700; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dl-card .meta small { display: block; color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dl-card .btn.small-btn { min-height: 38px; font-size: 14px; padding: 6px 14px; box-shadow: none; }
+.dl-card .icon-btn { width: 36px; height: 36px; color: var(--muted); }
+/* Con resultados abiertos, los atajos se apartan */
+.topbar:has(.results:not([hidden])) .quick, .topbar:has(.results:not([hidden])) .dl-card { display: none; }
+@media (max-width: 699px) {
+  .fabs { bottom: calc(var(--bottom-h, 60px) + 28px + var(--safe-bottom)); }
+  body.free-drive:not(.navigating):not(.has-sheet) .speed { bottom: calc(var(--bottom-h, 60px) + 28px + var(--safe-bottom)); }
+  .pills { order: 0; }
+}

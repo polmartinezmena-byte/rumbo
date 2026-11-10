@@ -191,6 +191,8 @@ let mapReady = false;
 map.on('load', () => {
   mapReady = true;
   step('mapa cargado');
+  // Créditos del mapa plegados en el botón «i» (no tapan la pantalla de inicio).
+  document.querySelector('.maplibregl-ctrl-attrib')?.classList.remove('maplibregl-compact-show');
   setTimeout(applyMapNight, 300);
   const firstSymbol = map.getStyle().layers.find((l) => l.type === 'symbol')?.id;
   map.addSource('areas', { type: 'geojson', data: empty });
@@ -307,6 +309,7 @@ async function loadRegionIndex() {
     if (r.ok) { regionIndex = await r.json(); store.set('regionIndex', regionIndex); }
   } catch { /* sin red: se usa el guardado */ }
   if (!$('#panel').hidden) renderRegions();
+  renderDlCard();
 }
 
 function tilesEstimate(r) {
@@ -466,7 +469,7 @@ function onPos(p) {
     centerOnFix = false;
     map.flyTo({ center: [gps.lon, gps.lat], zoom: Math.max(map.getZoom(), 15) });
   }
-  if (first) { refreshWeather(); applyMapNight(); }
+  if (first) { refreshWeather(); applyMapNight(); renderDlCard(); }
   if (nav && !simTimer) nav.update(gps);
   else if (!nav) free.update(gps);
   if (sheetNow === 'sos') updateSosCoords();
@@ -616,6 +619,9 @@ function renderRain() {
     pill.textContent = `${worst.level >= 3 ? '🔴' : '🟠'} Aviso ${worst.levelName} de AEMET: ${worst.phen || worst.event}${worst.rain && settings.floodMode === 'auto' ? ' · ruta segura activada' : ''}`;
     pill.className = `pill rain l${worst.level >= 3 ? 2 : 1}`;
   }
+  // Sin lluvia ni avisos, la píldora no ocupa la pantalla: el acceso queda en los atajos de abajo.
+  pill.hidden = !(lvl || settings.floodMode === 'on' || worst);
+  renderQuick();
 
   const w = weather;
   $('#rain-now').innerHTML = w
@@ -1535,7 +1541,75 @@ $('#btn-pick-contact').onclick = async () => {
 
 // ================================================================== FAVORITOS
 const near = (a, b) => a && b && haversine(a.lat, a.lon, b.lat, b.lon) < 30;
+// ------------------------------------------------------------------ pantalla de inicio
+// Atajos encima del buscador (como en Waze): tu coche, tus favoritos, la gasolinera más cercana y la lluvia.
+const SVG = {
+  star: '<svg viewBox="0 0 24 24" class="ico fill"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"/></svg>',
+  home: '<svg viewBox="0 0 24 24" class="ico"><path d="M3 11 12 4l9 7"/><path d="M5 10v10h14V10"/></svg>',
+  work: '<svg viewBox="0 0 24 24" class="ico"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>',
+  car: '<svg viewBox="0 0 24 24" class="ico"><path d="M5 17h14M6 17v2M18 17v2M4 13l2-6h12l2 6v4H4z"/><circle cx="8" cy="14.5" r="1"/><circle cx="16" cy="14.5" r="1"/></svg>',
+  fuel: '<svg viewBox="0 0 24 24" class="ico"><path d="M4 21V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v16M3 21h13M15 9h2a2 2 0 0 1 2 2v5a1.5 1.5 0 0 0 3 0V8l-3-3"/><path d="M7 7h5"/></svg>',
+  rain: '<svg viewBox="0 0 24 24" class="ico"><path d="M7 15a4 4 0 0 1-.6-8 6 6 0 0 1 11.4 1.5A3.5 3.5 0 0 1 17.5 15"/><path d="M9 18l-1 2M13 18l-1 2M17 18l-1 2"/></svg>',
+  dl: '<svg viewBox="0 0 24 24" class="ico"><path d="M12 3v12m0 0-4-4m4 4 4-4"/><path d="M4 17v3h16v-3"/></svg>',
+  x: '<svg viewBox="0 0 24 24" class="ico"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+};
+// Los botones flotantes quedan justo encima de lo que hay abajo (buscador + atajos + tarjeta).
+function updateBottomH() {
+  const vis = (el) => el && !el.hidden && getComputedStyle(el).display !== 'none';
+  let h = $('.search').offsetHeight;
+  for (const el of [$('#quick'), $('#dl-card')]) if (vis(el)) h += el.offsetHeight + 8;
+  document.body.style.setProperty('--bottom-h', `${h}px`);
+}
+addEventListener('resize', updateBottomH);
+function renderQuick() {
+  const box = $('#quick');
+  if (!box) return;
+  requestAnimationFrame(updateBottomH);
+  const chips = [];
+  if (car) chips.push({ icon: SVG.car, label: 'Mi coche', go: () => { renderCar(); $('#car-walk')?.click(); } });
+  for (const f of favs.slice(0, 4)) {
+    const n = f.name.toLowerCase();
+    const icon = /casa|home|hogar/.test(n) ? SVG.home : /trabajo|oficina|feina|work/.test(n) ? SVG.work : SVG.star;
+    chips.push({ icon, label: f.name, go: () => setDest({ lat: f.lat, lon: f.lon, label: f.name }) });
+  }
+  chips.push({ icon: SVG.fuel, label: 'Gasolinera', go: async () => {
+    const p = gps || { lat: map.getCenter().lat, lon: map.getCenter().lng };
+    const [it] = await call('nearby', { near: [p.lat, p.lon], cat: 'fuel' }).catch(() => []);
+    if (!it) return toast('No encuentro gasolineras cerca');
+    setDest({ lat: it.lat, lon: it.lon, label: it.name || 'Gasolinera' });
+  } });
+  if ($('#rain').hidden) chips.push({ icon: SVG.rain, label: 'Lluvia', go: () => $('#rain').onclick() });
+  box.innerHTML = '';
+  for (const c of chips) {
+    const b = document.createElement('button');
+    b.className = 'qchip';
+    b.innerHTML = `${c.icon}<span>${esc(c.label)}</span>`;
+    b.onclick = c.go;
+    box.appendChild(b);
+  }
+  box.hidden = !chips.length;
+}
+
+// Tarjeta para descargar tu comunidad (en lugar de un aviso que desaparece).
+function renderDlCard() {
+  const box = $('#dl-card');
+  if (!box) return;
+  const until = store.get('dlHintUntil', 0);
+  if (hasMaps() || Date.now() < until || !regionIndex?.regions?.length) { box.hidden = true; updateBottomH(); return; }
+  const p = gps || { lat: map.getCenter().lat, lon: map.getCenter().lng };
+  const r = regionIndex.regions.find((x) => !x.main && p.lat >= x.bbox.s && p.lat <= x.bbox.n && p.lon >= x.bbox.w && p.lon <= x.bbox.e);
+  requestAnimationFrame(updateBottomH);
+  box.innerHTML = `<span class="dl-ico">${SVG.dl}</span>
+    <div class="meta"><b>Úsalo sin conexión</b><small>${r ? `${esc(r.name)} · ${mb(r.size + tilesEstimate(r).bytes)}` : 'Descarga tu comunidad o una zona'}</small></div>
+    <button class="btn primary small-btn" id="dl-card-go">Descargar</button>
+    <button class="icon-btn" id="dl-card-x" aria-label="Ahora no">${SVG.x}</button>`;
+  box.hidden = false;
+  $('#dl-card-go').onclick = () => { if (r) { downloadRegion(r); toast(`Descargando ${r.name}… puedes seguir usando la app`, 5000); box.hidden = true; } else $('#btn-menu').click(); };
+  $('#dl-card-x').onclick = () => { store.set('dlHintUntil', Date.now() + 7 * 86400000); box.hidden = true; updateBottomH(); };
+}
+
 function drawFavs() {
+  renderQuick();
   if (!mapReady) return;
   map.getSource('favs').setData({
     type: 'FeatureCollection',
@@ -1556,6 +1630,7 @@ function saveCar() {
   if (!p) return;
   car = { lat: p.lat, lon: p.lon, at: Date.now(), label: dest?.label || '' };
   store.set('car', car);
+  renderQuick();
 }
 
 function renderCar() {
@@ -1575,7 +1650,7 @@ function renderCar() {
     computeRoute({ foot: true });
   };
   $('#car-show').onclick = () => { setSheet(null); map.flyTo({ center: [car.lon, car.lat], zoom: 17 }); };
-  $('#car-forget').onclick = () => { car = null; store.set('car', null); renderCar(); };
+  $('#car-forget').onclick = () => { car = null; store.set('car', null); renderCar(); renderQuick(); };
 }
 
 function renderFavs() {
@@ -1793,7 +1868,8 @@ call('init').then(async (c) => {
   refreshLive();
   if (store.get('riskLayer')) toggleRiskLayer(true);
   updateNet();
-  if (!hasMaps() && store.get('onboarded')) setTimeout(() => toast('Descarga tu comunidad (⬇) para usar Rumbo sin conexión.', 6000), 1200);
+  renderDlCard();
+  renderQuick();
   if (resume?.dest) {
     if (resume.origin) { origin = resume.origin; originMarker.setLngLat([origin.lon, origin.lat]).addTo(map); }
     dest = resume.dest;
