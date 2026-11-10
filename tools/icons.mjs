@@ -38,3 +38,21 @@ await png(svg(arrow(0.62), null), 1024, 'assets/icon-foreground.png');
 await png(svg('', BLUE), 1024, 'assets/icon-background.png');
 await png(svg(`<rect x="176" y="176" width="160" height="160" rx="36" fill="${BLUE}"/><g transform="translate(176 176) scale(0.3125)">${arrow()}</g>`, DARK), 1024, 'assets/splash.png');
 console.log('Iconos generados');
+
+// Pantallas de arranque del iPhone (apps instaladas desde el navegador): fondo oscuro, icono y nombre.
+// Cada modelo pide su tamaño exacto; index.html las enlaza con su media query.
+export const SPLASHES = [
+  [1320, 2868, 440, 956], [1290, 2796, 430, 932], [1206, 2622, 402, 874], [1179, 2556, 393, 852],
+  [1284, 2778, 428, 926], [1170, 2532, 390, 844], [1125, 2436, 375, 812], [1242, 2688, 414, 896],
+  [828, 1792, 414, 896], [750, 1334, 375, 667],
+];
+for (const [w, h] of SPLASHES) {
+  const s = w / 3; // tamaño del icono
+  const body = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+<rect width="${w}" height="${h}" fill="${DARK}"/>
+<g transform="translate(${(w - s) / 2} ${h / 2 - s * 0.75}) scale(${s / 512})"><rect width="512" height="512" rx="112" fill="${BLUE}"/>${arrow()}</g>
+<text x="${w / 2}" y="${h / 2 + s * 0.55}" text-anchor="middle" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-weight="700" font-size="${s * 0.26}" fill="#f8fafc">Rumbo</text>
+</svg>`;
+  await sharp(Buffer.from(body)).png({ compressionLevel: 9 }).toFile(join(ROOT, `icons/splash-${w}x${h}.png`));
+}
+console.log('Pantallas de arranque generadas');

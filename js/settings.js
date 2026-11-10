@@ -7,6 +7,7 @@ export const DEFAULTS = {
   alertSection: true,        // radares de tramo
   alertRedLight: true,       // semáforos con cámara
   freeDrive: true,           // avisos también conduciendo sin ruta
+  chime: true,               // sonido suave antes de cada indicación
   traffic: true,             // tráfico típico por franja horaria en rutas y tiempos de llegada
   speedWarning: true,        // aviso al superar el límite
   speedMargin: 5,            // km/h de margen antes de avisar

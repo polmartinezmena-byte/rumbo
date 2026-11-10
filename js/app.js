@@ -8,6 +8,8 @@ import { nativeStop } from './native.js';
 import { keepAwake, allowSleep } from './awake.js';
 import { FreeDrive } from './free-drive.js';
 import { LANE_ANGLE } from './lanes.js';
+import { brandStyle } from './map-brand.js';
+import { autoIconize, drawIcon } from './icons.js';
 import { markerSvg, MARKER_ICONS, MARKER_COLORS } from './markers.js';
 import { offlineStyle, registerOfflineProtocol } from './map-offline.js';
 
@@ -82,7 +84,7 @@ function maneuverSvg(step) {
   return arrowSvg(step.angle || 0);
 }
 
-const SHEETS = ['route', 'nav', 'sos', 'contacts', 'rain', 'favs', 'settings', 'credits'];
+const SHEETS = ['route', 'nav', 'arrive', 'sos', 'contacts', 'rain', 'favs', 'settings', 'credits'];
 let sheetNow = null;
 function setSheet(which) {
   sheetNow = which;
@@ -98,7 +100,7 @@ const backToMain = () => (route && !nav ? showRouteSheet() : setSheet(nav ? 'nav
 const view = store.get('view');
 // Estilo y teselas desde la caché propia (funciona sin conexión también en la app nativa).
 registerOfflineProtocol(maplibregl);
-const mapStyle = await offlineStyle().catch(() => STYLE_URL);
+const mapStyle = await offlineStyle().then((s) => brandStyle(s, false)).catch(() => STYLE_URL);
 step('estilo del mapa ' + (typeof mapStyle === 'string' ? '(red)' : '(caché)'));
 const map = new maplibregl.Map({
   container: 'map', style: mapStyle,
@@ -204,11 +206,28 @@ map.on('load', () => {
       'line-color': ['match', ['get', 'level'], 'paso', '#7c3aed', 'alto', '#dc2626', '#f59e0b'],
       'line-width': ['interpolate', ['linear'], ['zoom'], 11, 1.5, 16, 6], 'line-opacity': 0.8,
     } }, firstSymbol);
-  map.addSource('route', { type: 'geojson', data: empty });
+  // Alternativas (debajo, en gris; se pueden tocar) y la ruta elegida encima, con tráfico por colores.
+  map.addSource('route-alts', { type: 'geojson', data: empty });
+  map.addLayer({ id: 'route-alt-casing', type: 'line', source: 'route-alts', layout: { 'line-join': 'round', 'line-cap': 'round' },
+    paint: { 'line-color': '#64748b', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 5, 17, 14], 'line-opacity': 0.7 } }, firstSymbol);
+  map.addLayer({ id: 'route-alt-line', type: 'line', source: 'route-alts', layout: { 'line-join': 'round', 'line-cap': 'round' },
+    paint: { 'line-color': '#a5b4c8', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 3, 17, 9] } }, firstSymbol);
+  map.addSource('route', { type: 'geojson', data: empty, lineMetrics: true });
   map.addLayer({ id: 'route-casing', type: 'line', source: 'route', layout: { 'line-join': 'round', 'line-cap': 'round' },
-    paint: { 'line-color': '#1d4ed8', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 6, 17, 16] } }, firstSymbol);
+    paint: { 'line-gradient': '#1e40af', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 7, 17, 17] } }, firstSymbol);
   map.addLayer({ id: 'route-line', type: 'line', source: 'route', layout: { 'line-join': 'round', 'line-cap': 'round' },
-    paint: { 'line-color': '#60a5fa', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 3.5, 17, 10] } }, firstSymbol);
+    paint: { 'line-gradient': '#3b82f6', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 4, 17, 11] } }, firstSymbol);
+  // Flechas de sentido sobre la ruta
+  addRouteArrow();
+  map.addLayer({ id: 'route-arrows', type: 'symbol', source: 'route', minzoom: 12,
+    layout: { 'symbol-placement': 'line', 'symbol-spacing': 90, 'icon-image': 'route-arrow', 'icon-size': ['interpolate', ['linear'], ['zoom'], 12, 0.55, 17, 0.9], 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-rotation-alignment': 'map' } }, firstSymbol);
+  map.addSource('route-alt-labels', { type: 'geojson', data: empty });
+  map.addLayer({ id: 'route-alt-label', type: 'symbol', source: 'route-alt-labels',
+    layout: { 'text-field': ['get', 't'], 'text-font': ['Noto Sans Bold'], 'text-size': 13, 'text-allow-overlap': true },
+    paint: { 'text-color': '#334155', 'text-halo-color': '#ffffff', 'text-halo-width': 2.5 } });
+  map.on('click', 'route-alt-line', (e) => { const i = e.features?.[0]?.properties?.i; if (i != null) useAlt(+i); });
+  map.on('mouseenter', 'route-alt-line', () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', 'route-alt-line', () => { map.getCanvas().style.cursor = ''; });
   map.addSource('route-risk', { type: 'geojson', data: empty });
   map.addLayer({ id: 'route-risk-line', type: 'line', source: 'route-risk', layout: { 'line-join': 'round', 'line-cap': 'round' },
     paint: { 'line-color': ['case', ['get', 'hard'], '#7c3aed', '#f97316'], 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 3.5, 17, 10] } }, firstSymbol);
@@ -258,7 +277,20 @@ let regionIndex = store.get('regionIndex', null); // catálogo de comunidades pu
 let origin = null, dest = null, route = null, nav = null, simTimer = null;
 let navPos = null, simAlong = 0; // última posición guiada y avance del simulador
 // Túneles: si el GPS calla yendo en marcha, se sigue avanzando por la ruta a la última velocidad.
-let lastFix = { t: 0, along: 0, speed: 0 }, drTimer = null, navAlong = 0;
+let lastFix = { t: 0, along: 0, speed: 0 }, drTimer = null, navAlong = 0, navStartT = Date.now();
+function showArrive(trip) {
+  setSheet('arrive');
+  $('#a-to').textContent = trip.to;
+  $('#a-clock').textContent = fmtClock(new Date());
+  $('#a-time').textContent = fmtTime(Math.max(60, trip.secs));
+  $('#a-dist').textContent = fmtDist(trip.dist);
+  $('#a-car').hidden = !car;
+  $('#a-car').innerHTML = '🅿️ He guardado dónde aparcas: lo tienes en <b>Mi coche</b> para volver a pie.';
+  const isFav = trip.dest && favs.some((f) => near(f, trip.dest));
+  $('#a-fav').hidden = !trip.dest || isFav;
+  $('#a-fav').onclick = () => { addFav(trip.dest, trip.to); $('#a-fav').hidden = true; };
+  $('#a-done').onclick = () => { setSheet(null); route = null; drawRoute(); destMarker.remove(); };
+}
 function deadReckon() {
   if (!nav || simTimer || !route) return;
   const quiet = (Date.now() - lastFix.t) / 1000;
@@ -482,10 +514,28 @@ function onPos(p) {
   if (sheetNow === 'sos') updateSosCoords();
 }
 
+// Tu posición se desliza de una lectura a la siguiente (en vez de saltar), también el giro.
+let meAnim = 0, meAt = null;
 function placeMe(lon, lat, heading) {
-  meMarker.setLngLat([lon, lat]);
-  if (!meOnMap) { meMarker.addTo(map); meOnMap = true; }
-  if (heading != null && !Number.isNaN(heading)) meMarker.setRotation(heading);
+  if (!meOnMap) { meMarker.setLngLat([lon, lat]).addTo(map); meOnMap = true; meAt = { lon, lat, h: heading ?? 0 }; }
+  const from = meAt || { lon, lat, h: heading ?? 0 };
+  const toH = heading != null && !Number.isNaN(heading) ? heading : from.h;
+  const dh = ((toH - from.h + 540) % 360) - 180;
+  const far = Math.abs(lon - from.lon) > 0.01 || Math.abs(lat - from.lat) > 0.01; // salto grande: sin animar
+  cancelAnimationFrame(meAnim);
+  if (far || matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    meMarker.setLngLat([lon, lat]); meMarker.setRotation(toH); meAt = { lon, lat, h: toH }; return;
+  }
+  const t0 = performance.now(), D = simTimer ? 280 : 900;
+  const tick = (t) => {
+    const k = Math.min(1, (t - t0) / D), e = 1 - (1 - k) * (1 - k);
+    const cur = { lon: from.lon + (lon - from.lon) * e, lat: from.lat + (lat - from.lat) * e, h: from.h + dh * e };
+    meMarker.setLngLat([cur.lon, cur.lat]);
+    meMarker.setRotation(cur.h);
+    meAt = cur;
+    if (k < 1) meAnim = requestAnimationFrame(tick);
+  };
+  meAnim = requestAnimationFrame(tick);
 }
 
 // El botón de ubicación (también brújula) está más abajo, junto al mapa.
@@ -527,6 +577,11 @@ async function runSearch() {
   const favHits = favs.filter((f) => f.name.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().includes(nq))
     .map((f) => ({ name: f.name, kind: '★ Favorito', lat: f.lat, lon: f.lon }));
   const canSearch = hasMaps() || navigator.onLine;
+  // Esqueleto de resultados mientras se busca (la búsqueda en línea tarda unos cientos de ms).
+  if (canSearch && ul.hidden) {
+    ul.innerHTML = '<li class="skel-row"><span class="skel c"></span><div><span class="skel" style="width:60%"></span><span class="skel" style="width:40%"></span></div></li>'.repeat(3);
+    ul.hidden = false;
+  }
   const found = canSearch ? await call('search', { q, near: [c.lat, c.lng] }).catch(() => []) : [];
   if (seq !== searchSeq) return; // ya se ha escrito otra cosa
   const res = [...favHits, ...found];
@@ -694,7 +749,8 @@ async function applyMapNight() {
   const want = wantDarkMap();
   if (want === mapDark) return;
   let next;
-  try { next = await offlineStyle(want ? STYLE_DARK : STYLE_URL); } catch { return; } // sin conexión y sin copia: se queda como está
+  // La noche sale del mismo estilo base con la paleta nocturna de Rumbo (sirve también sin conexión).
+  try { next = brandStyle(await offlineStyle(STYLE_URL), want); } catch { return; } // sin copia: se queda como está
   mapDark = want;
   step(`mapa ${want ? 'de noche' : 'de día'}`);
   // Con la interfaz en «Automático», de noche también se oscurece (no deslumbra al conducir).
@@ -721,6 +777,7 @@ async function applyMapNight() {
   map.once('style.load', () => {
     addCameraIcons();
     for (const [name, img] of incImages) if (!map.hasImage(name)) map.addImage(name, img, { pixelRatio: 2 });
+    addRouteArrow();
     apply3d();
   });
 }
@@ -821,17 +878,17 @@ function addLiveLayers(firstSymbol) {
   map.addSource('live-inc-lines', { type: 'geojson', data: empty });
   map.addLayer({ id: 'live-inc-line', type: 'line', source: 'live-inc-lines', minzoom: 9,
     paint: { 'line-color': ['match', ['get', 'k'], 'inundacion', '#2563eb', '#dc2626'], 'line-width': ['interpolate', ['linear'], ['zoom'], 9, 2, 15, 6], 'line-dasharray': [1, 1] } });
-  const icon = (emoji, bg) => {
+  // Incidencias de la DGT: icono propio blanco sobre un círculo de color con borde blanco.
+  const icon = (name, bg) => {
     const S = 40, R = 2, c = document.createElement('canvas');
     c.width = c.height = S * R;
     const x = c.getContext('2d');
     x.scale(R, R);
     x.beginPath(); x.arc(20, 20, 17, 0, Math.PI * 2); x.fillStyle = bg; x.fill(); x.lineWidth = 3; x.strokeStyle = '#fff'; x.stroke();
-    x.font = '19px system-ui, "Segoe UI Emoji", "Apple Color Emoji", sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
-    x.fillText(emoji, 20, 21);
+    drawIcon(x, name, 20, 20, 20, '#fff');
     return { width: S * R, height: S * R, data: x.getImageData(0, 0, S * R, S * R).data };
   };
-  const ICONS = { cortada: ['⛔', '#fee2e2'], calzada: ['⛔', '#fee2e2'], inundacion: ['🌊', '#dbeafe'], accidente: ['💥', '#fde68a'], carril: ['🚧', '#fef3c7'], obras: ['🚧', '#fef3c7'], retencion: ['🐢', '#ffedd5'], meteo: ['❄️', '#e0f2fe'], obstaculo: ['⚠️', '#fef3c7'], otro: ['⚠️', '#f1f5f9'] };
+  const ICONS = { cortada: ['noEntry', '#dc2626'], calzada: ['noEntry', '#dc2626'], inundacion: ['water', '#2563eb'], accidente: ['crash', '#d97706'], carril: ['works', '#ea580c'], obras: ['works', '#ea580c'], retencion: ['slow', '#ea580c'], meteo: ['snow', '#0284c7'], obstaculo: ['warning', '#d97706'], otro: ['warning', '#64748b'] };
   incImages = Object.entries(ICONS).map(([k, [e, bg]]) => ['inc-' + k, icon(e, bg)]);
   for (const [name, img] of incImages) map.addImage(name, img, { pixelRatio: 2 });
   map.addSource('live-inc', { type: 'geojson', data: empty });
@@ -981,6 +1038,8 @@ async function computeRoute({ fit = true, foot = walking } = {}) {
     startGps();
     return;
   }
+  // Esqueleto de la ficha mientras se calcula (no navegando: ahí se recalcula sin tapar el guiado).
+  if (!nav) { setSheet('route'); $('#sheet-route').classList.add('loading'); }
   try {
     const t0 = performance.now();
     route = await call('route', {
@@ -989,9 +1048,12 @@ async function computeRoute({ fit = true, foot = walking } = {}) {
     });
     route.ms = Math.round(performance.now() - t0);
   } catch (e) {
+    $('#sheet-route').classList.remove('loading');
+    if (!nav) setSheet(null);
     toast(e.message, 5000);
     return;
   }
+  $('#sheet-route').classList.remove('loading');
   drawRoute();
   if (nav) {
     simAlong = 0;
@@ -1004,7 +1066,10 @@ async function computeRoute({ fit = true, foot = walking } = {}) {
   if (fit) {
     const b = new maplibregl.LngLatBounds();
     route.coords.forEach((c) => b.extend(c));
-    map.fitBounds(b, { padding: { top: 110, bottom: 300, left: 40, right: 40 }, maxZoom: 17 });
+    // La ruta se encuadra en el hueco que deja la ficha (que puede ocupar media pantalla).
+    const sheetH = Math.min($('#sheet').offsetHeight || 300, innerHeight * 0.6);
+    const wide = innerWidth >= 700;
+    map.fitBounds(b, { padding: { top: 80, bottom: wide ? 40 : sheetH + 24, left: wide ? 460 : 30, right: 70 }, maxZoom: 17, duration: 600 });
   }
   if (!foot) {
     // Los avisos de AEMET que cruza la ruta pueden exigir la ruta segura.
@@ -1054,9 +1119,73 @@ async function checkRainAlongRoute(r) {
   } catch { /* sin datos de lluvia en ruta: se sigue con los de tu posición */ }
 }
 
+function addRouteArrow() {
+  if (map.hasImage('route-arrow')) return;
+  const S = 24, Rr = 2, c = document.createElement('canvas'); c.width = c.height = S * Rr;
+  const x = c.getContext('2d'); x.scale(Rr, Rr);
+  x.strokeStyle = 'rgba(255,255,255,0.95)'; x.lineWidth = 3; x.lineCap = 'round'; x.lineJoin = 'round';
+  x.beginPath(); x.moveTo(8, 6); x.lineTo(15, 12); x.lineTo(8, 18); x.stroke();
+  map.addImage('route-arrow', { width: S * Rr, height: S * Rr, data: x.getImageData(0, 0, S * Rr, S * Rr).data }, { pixelRatio: 2 });
+}
+// Color de cada tramo según el tráfico típico: azul normal, naranja más lento, rojo muy lento.
+const ROUTE_C = { base: '#3b82f6', slow: '#f59e0b', slower: '#ef4444', casing: '#1e40af', none: 'rgba(0,0,0,0)' };
+function routeGradient(r, reveal, casing = false) {
+  const tf = !casing && r.traffic?.seg;
+  const colorAt = (i) => (!tf ? (casing ? ROUTE_C.casing : ROUTE_C.base) : tf[i] >= 1.45 ? ROUTE_C.slower : tf[i] >= 1.2 ? ROUTE_C.slow : ROUTE_C.base);
+  let cur = colorAt(0);
+  const expr = ['step', ['line-progress'], cur];
+  let last = 0;
+  if (tf) {
+    for (let i = 1; i < tf.length; i++) {
+      const p = r.cum[i] / (r.distance || 1);
+      if (p >= reveal) break;
+      const c = colorAt(i);
+      if (c !== cur && p - last > 0.002) { expr.push(p, c); cur = c; last = p; }
+    }
+  }
+  if (reveal < 1 && reveal > last) expr.push(reveal, ROUTE_C.none);
+  return expr.length === 3 ? expr[2] : expr;
+}
+let routeAnim = 0;
+function paintRoute(reveal) {
+  if (!route || !mapReady) return;
+  map.setPaintProperty('route-line', 'line-gradient', routeGradient(route, reveal));
+  map.setPaintProperty('route-casing', 'line-gradient', routeGradient(route, reveal, true));
+}
+// La ruta se dibuja de salida a destino en ~0,7 s (no durante la navegación).
+function animateRoute() {
+  cancelAnimationFrame(routeAnim);
+  if (nav || matchMedia('(prefers-reduced-motion: reduce)').matches) return paintRoute(1);
+  const t0 = performance.now();
+  const tick = (t) => {
+    const k = Math.min(1, (t - t0) / 700);
+    paintRoute(1 - (1 - k) ** 3);
+    if (k < 1) routeAnim = requestAnimationFrame(tick);
+  };
+  routeAnim = requestAnimationFrame(tick);
+}
+// Elegir una alternativa (tocando su línea gris o el botón de la ficha).
+function useAlt(i) {
+  const a = route?.alts?.[i];
+  if (!a) return;
+  const { alts, ...main } = route;
+  a.alts = [main, ...alts.filter((_, k) => k !== i)];
+  route = a;
+  drawRoute();
+  if (nav) nav.setRoute(route); else showRouteSheet();
+}
+
 function drawRoute() {
   if (!mapReady) return;
   map.getSource('route').setData(route ? { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: route.coords } } : empty);
+  const alts = (!nav && route?.alts) || [];
+  map.getSource('route-alts').setData({ type: 'FeatureCollection', features: alts.map((a, i) => ({ type: 'Feature', properties: { i }, geometry: { type: 'LineString', coordinates: a.coords } })) });
+  map.getSource('route-alt-labels').setData({ type: 'FeatureCollection', features: alts.map((a) => {
+    const mid = pointAt(a, a.distance * 0.5);
+    const d = Math.round((a.duration - route.duration) / 60);
+    return { type: 'Feature', properties: { t: d === 0 ? 'Mismo tiempo' : `${d > 0 ? '+' : '−'}${Math.abs(d)} min` }, geometry: { type: 'Point', coordinates: [mid.lon, mid.lat] } };
+  }) });
+  if (route) animateRoute();
   const feats = [];
   if (route && route.level > 0) {
     for (const run of route.riskRuns) {
@@ -1126,6 +1255,14 @@ function showRouteSheet() {
     bWith.setAttribute('aria-checked', String(!settings.avoidTolls));
     bWithout.setAttribute('aria-checked', String(settings.avoidTolls));
   }
+  // Alternativas: tarjeta con su tiempo y distancia, se elige con un toque.
+  const alts = route.alts || [];
+  $('#r-alts').hidden = !alts.length;
+  $('#r-alts').innerHTML = alts.map((a, i) => {
+    const d = Math.round((a.duration - route.duration) / 60);
+    return `<button class="r-alt" data-i="${i}"><span class="r-alt-dot"></span><span><b>Alternativa · ${fmtTime(a.duration)}</b><small>${fmtDist(a.distance)} · ${d === 0 ? 'mismo tiempo' : `${d > 0 ? '+' : '−'}${Math.abs(d)} min`}</small></span><span class="chev"></span></button>`;
+  }).join('');
+  $$('#r-alts .r-alt').forEach((b) => (b.onclick = () => useAlt(+b.dataset.i)));
   $('#steps-sum').textContent = `Indicaciones (${route.steps.length})`;
   const ol = $('#steps');
   ol.innerHTML = '';
@@ -1173,6 +1310,7 @@ function startNav(simulate) {
 
   clearInterval(drTimer);
   drTimer = setInterval(deadReckon, 1000);
+  navStartT = Date.now();
   nav = new Navigator(route, {
     onUpdate: renderNav,
     onOffRoute: () => {
@@ -1195,7 +1333,10 @@ function startNav(simulate) {
         store.set('car', null);
       } else {
         saveCar();
-        toast('Has llegado a tu destino 🎉 · Guardado dónde aparcas (🅿️ en Favoritos)', 5000);
+        // Tarjeta de llegada en lugar de un aviso que desaparece.
+        const trip = { to: dest?.label || 'tu destino', secs: (Date.now() - navStartT) / 1000, dist: route?.distance || 0, dest };
+        setTimeout(() => { stopNav(); showArrive(trip); }, 1500);
+        return;
       }
       setTimeout(stopNav, 2500);
     },
@@ -1759,7 +1900,7 @@ $('#btn-fav-dest').onclick = () => {
 };
 
 // ================================================================== AJUSTES
-const APP_VERSION = '0.5.0';
+const APP_VERSION = '0.6.0';
 
 function renderSettings() {
   $$('#sheet-settings input.switch').forEach((i) => (i.checked = !!settings[i.dataset.set]));
@@ -1984,6 +2125,9 @@ if (!store.get('onboarded')) loadRegionIndex().then(showOnboarding);
 else loadRegionIndex();
 renderRain();
 refreshWeather();
+
+// Iconos propios en lugar de emojis en toda la interfaz (notas, banner, avisos, lluvia, coche…).
+autoIconize([$('#sheet'), $('#banner'), $('#toast'), $('#rain'), $('#panel'), $('#topbar'), $('#onboarding')]);
 
 // La app ha arrancado: se quita el aviso de «no arranca» de index.html.
 globalThis.rumboBooted?.();

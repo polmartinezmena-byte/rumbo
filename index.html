@@ -9,6 +9,17 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <!-- Pantalla de arranque del iPhone (en vez de un destello negro o blanco al abrir) -->
+  <link rel="apple-touch-startup-image" href="icons/splash-1320x2868.png" media="(device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+  <link rel="apple-touch-startup-image" href="icons/splash-1290x2796.png" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+  <link rel="apple-touch-startup-image" href="icons/splash-1206x2622.png" media="(device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+  <link rel="apple-touch-startup-image" href="icons/splash-1179x2556.png" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+  <link rel="apple-touch-startup-image" href="icons/splash-1284x2778.png" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+  <link rel="apple-touch-startup-image" href="icons/splash-1170x2532.png" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+  <link rel="apple-touch-startup-image" href="icons/splash-1125x2436.png" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+  <link rel="apple-touch-startup-image" href="icons/splash-1242x2688.png" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+  <link rel="apple-touch-startup-image" href="icons/splash-828x1792.png" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
+  <link rel="apple-touch-startup-image" href="icons/splash-750x1334.png" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Rumbo">
@@ -153,6 +164,7 @@
         <button data-toll="0" role="radio"></button>
         <button data-toll="1" role="radio"></button>
       </div>
+      <div id="r-alts" class="r-alts" hidden></div>
       <div id="r-flood" class="flood-note" hidden></div>
       <div id="r-live" class="live-notes"></div>
       <details id="r-fuel-box" hidden>
@@ -168,6 +180,24 @@
         <summary id="steps-sum">Indicaciones</summary>
         <ol id="steps" class="steps"></ol>
       </details>
+    </div>
+
+    <!-- Llegada -->
+    <div id="sheet-arrive" hidden>
+      <div class="arrive-head">
+        <span class="arrive-ico"><svg viewBox="0 0 24 24"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg></span>
+        <div class="min0"><h2>Has llegado</h2><div id="a-to" class="muted ellipsis"></div></div>
+      </div>
+      <div class="arrive-stats">
+        <div class="stat"><b id="a-clock"></b><small>hora de llegada</small></div>
+        <div class="stat"><b id="a-time"></b><small>de viaje</small></div>
+        <div class="stat"><b id="a-dist"></b><small>recorridos</small></div>
+      </div>
+      <div id="a-car" class="live-note good" hidden></div>
+      <div class="row gap">
+        <button id="a-fav" class="btn grow">Guardar en favoritos</button>
+        <button id="a-done" class="btn primary grow">Listo</button>
+      </div>
     </div>
 
     <!-- Navegación -->
@@ -263,6 +293,7 @@
       <h3>Navegación</h3>
       <div class="set-list">
         <label class="set"><span class="si" style="--i:#2563eb"><svg viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></span><span class="st"><b>Indicaciones por voz</b></span><input type="checkbox" class="switch" data-set="voice"></label>
+        <label class="set"><span class="si" style="--i:#0ea5e9"><svg viewBox="0 0 24 24"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg></span><span class="st"><b>Sonido antes de cada indicación</b><small>Dos notas suaves para que la voz no pille por sorpresa</small></span><input type="checkbox" class="switch" data-set="chime"></label>
         <label class="set"><span class="si" style="--i:#d97706"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M15 8.5a4 4 0 1 0 0 7M7.5 11h6M7.5 13.5h6"/></svg></span><span class="st"><b>Evitar peajes</b><small>Siempre que haya una alternativa razonable</small></span><input type="checkbox" class="switch" data-set="avoidTolls"></label>
         <label class="set"><span class="si" style="--i:#ea580c"><svg viewBox="0 0 24 24"><path d="M12 21a9 9 0 1 1 9-9"/><path d="M12 7v5l3 2"/><path d="M17 17h4v4"/></svg></span><span class="st"><b>Tráfico por hora del día</b><small>Horas punta y fines de semana en la ruta y la llegada</small></span><input type="checkbox" class="switch" data-set="traffic"></label>
       </div>

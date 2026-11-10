@@ -120,7 +120,7 @@ function buildRoute(trip, foot) {
  * Ruta con conexión.
  * @param avoid  puntos [lat, lon] por los que no debe pasar (cortes de la DGT, entradas a ZBE prohibidas)
  */
-export async function onlineRoute(from, to, { foot = false, avoidTolls = false, avoid = [] } = {}) {
+export async function onlineRoute(from, to, { foot = false, avoidTolls = false, avoid = [], alternates = 0 } = {}) {
   const body = {
     locations: [{ lat: from[0], lon: from[1] }, { lat: to[0], lon: to[1] }],
     costing: foot ? 'pedestrian' : 'auto',
@@ -128,8 +128,11 @@ export async function onlineRoute(from, to, { foot = false, avoidTolls = false, 
     exclude_locations: avoid.slice(0, 40).map(([lat, lon]) => ({ lat, lon })),
     language: 'es', units: 'kilometers', directions_type: 'maneuvers', turn_lanes: true,
   };
+  if (alternates) body.alternates = alternates;
   const j = await post('/route', body);
-  return buildRoute(j.trip, foot);
+  const r = buildRoute(j.trip, foot);
+  if (alternates) r.altTrips = (j.alternates || []).map((a) => buildRoute(a.trip, foot));
+  return r;
 }
 
 /** Límite de velocidad y peaje de cada tramo de la ruta (se ajusta la ruta a la red de Valhalla). */

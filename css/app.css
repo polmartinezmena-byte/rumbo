@@ -600,3 +600,41 @@ body.navigating .toast.show { transform: translate(-50%, 0); }
 }
 /* Con Ajustes abierto (hoja alta) no se superponen los botones del mapa */
 body:has(#sheet-settings:not([hidden])) .fabs, body:has(#sheet-settings:not([hidden])) .corner { display: none; }
+
+/* ---------- v16: movimiento y alternativas ---------- */
+@keyframes sheet-in { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes banner-in { from { transform: translateY(-16px) scale(0.98); opacity: 0; } to { transform: none; opacity: 1; } }
+.sheet:not([hidden]), .topbar.home, .panel:not([hidden]) { animation: sheet-in 0.32s var(--ease) both; }
+#sheet > div:not([hidden]) { animation: fade-in 0.22s ease-out both; }
+.banner:not([hidden]) { animation: banner-in 0.35s var(--ease) both; }
+.results:not([hidden]) li { animation: fade-in 0.18s ease-out both; }
+.r-alts { margin-top: 10px; display: grid; gap: 6px; }
+.r-alt { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 12px; border-radius: var(--r); border: 1px solid var(--line); background: var(--surface); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.r-alt > span:nth-child(2) { flex: 1; min-width: 0; }
+.r-alt b { display: block; font-weight: 600; }
+.r-alt small { color: var(--muted); font-size: 13px; }
+.r-alt-dot { width: 26px; height: 6px; border-radius: 99px; background: #a5b4c8; box-shadow: 0 0 0 2px #64748b inset; flex: none; }
+@media (prefers-reduced-motion: reduce) { .sheet, .topbar.home, .banner, #sheet > div, .panel { animation: none !important; } }
+body.has-sheet .corner { display: none; }
+
+/* ---------- v17: iconos en línea (en lugar de emojis) ---------- */
+.ii { width: 1.15em; height: 1.15em; vertical-align: -0.2em; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; display: inline-block; }
+.banner .ii, .b-live .ii, .b-warn .ii { color: inherit !important; }
+.pill .ii { width: 1.05em; height: 1.05em; }
+
+/* ---------- v18: tarjeta de llegada y esqueletos de carga ---------- */
+.arrive-head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+.arrive-ico { width: 52px; height: 52px; border-radius: 16px; background: var(--ok); color: #fff; display: grid; place-items: center; flex: none; box-shadow: 0 8px 20px rgba(22, 163, 74, 0.3); }
+.arrive-ico svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.arrive-head h2 { font-size: 24px; }
+.arrive-stats { display: flex; justify-content: space-between; gap: 10px; padding: 14px; background: var(--surface-2); border-radius: var(--r); margin-bottom: 10px; }
+@keyframes shimmer { from { background-position: -240px 0; } to { background-position: 240px 0; } }
+.skel { display: block; height: 14px; border-radius: 8px; background: linear-gradient(90deg, var(--surface-2) 0, var(--line-strong) 50%, var(--surface-2) 100%); background-size: 480px 100%; animation: shimmer 1.2s linear infinite; }
+.results .skel-row { display: flex; gap: 12px; align-items: center; padding: 12px; cursor: default; }
+.results .skel-row .skel.c { width: 32px; height: 32px; border-radius: 50%; flex: none; }
+.results .skel-row div { flex: 1; display: grid; gap: 7px; }
+#sheet-route.loading > * { visibility: hidden; }
+#sheet-route.loading { position: relative; min-height: 190px; }
+#sheet-route.loading::before { content: ''; position: absolute; inset: 0 0 auto 0; height: 34px; border-radius: 10px; width: 46%; background: linear-gradient(90deg, var(--surface-2) 0, var(--line-strong) 50%, var(--surface-2) 100%); background-size: 480px 100%; animation: shimmer 1.2s linear infinite; }
+#sheet-route.loading::after { content: 'Calculando la mejor ruta…'; position: absolute; left: 0; right: 0; top: 56px; color: var(--muted); font-weight: 600; }

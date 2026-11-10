@@ -193,10 +193,13 @@ function describe(G, path, edges, foot = false, prof = null) {
   const { steps, cum } = buildSteps(G, path, edges, foot);
   let duration = 0, freeDuration = 0, tollLen = 0;
   const segRisk = new Array(edges.length);
+  const segTf = prof ? new Array(edges.length) : null; // cuánto más lento va cada tramo (tráfico típico)
   for (let i = 0; i < edges.length; i++) {
     const w = foot ? G.dist[edges[i]] / WALK : wt[edges[i]];
     freeDuration += w;
-    duration += prof ? w * trafficFactor(prof, G.dist[edges[i]] / (wt[edges[i]] || 1)) : w;
+    const tf = prof ? trafficFactor(prof, G.dist[edges[i]] / (wt[edges[i]] || 1)) : 1;
+    if (segTf) segTf[i] = Math.round(tf * 100) / 100;
+    duration += w * tf;
     if (G.toll?.[edges[i]]) tollLen += G.dist[edges[i]];
     segRisk[i] = risk ? (hard[edges[i]] ? 1 : Math.round((risk[edges[i]] / 255) * 100) / 100) : 0;
   }
@@ -224,7 +227,7 @@ function describe(G, path, edges, foot = false, prof = null) {
     steps,
     distance: cum[cum.length - 1],
     duration,
-    traffic: prof ? { label: prof.label, delay: Math.max(0, duration - freeDuration) } : null,
+    traffic: prof ? { label: prof.label, delay: Math.max(0, duration - freeDuration), seg: segTf } : null,
   };
 }
 

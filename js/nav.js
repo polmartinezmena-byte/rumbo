@@ -30,8 +30,33 @@ let muted = false;
 export const setMuted = (m) => { muted = m; if (m && !nativeStop()) globalThis.speechSynthesis?.cancel(); };
 export const isMuted = () => muted;
 
+// Sonido suave antes de cada indicación (dos notas cortas generadas aquí: no hay ficheros de audio).
+// iOS solo deja sonar audio después de un toque: el contexto se crea y se «despierta» con el primero.
+let actx = null;
+const unlock = () => { try { actx ??= new (globalThis.AudioContext || globalThis.webkitAudioContext)(); actx.resume?.(); } catch { /* sin audio */ } };
+globalThis.addEventListener?.('pointerdown', unlock, { once: false, passive: true });
+function chime() {
+  if (!actx || actx.state !== 'running') return 0;
+  const t = actx.currentTime;
+  for (const [f, d] of [[880, 0], [1318.5, 0.12]]) {
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = 'sine'; o.frequency.value = f;
+    g.gain.setValueAtTime(0, t + d);
+    g.gain.linearRampToValueAtTime(0.18, t + d + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.001, t + d + 0.28);
+    o.connect(g).connect(actx.destination);
+    o.start(t + d); o.stop(t + d + 0.3);
+  }
+  return 380; // ms hasta empezar a hablar
+}
+
 export function speak(text) {
   if (muted || !settings.voice) return;
+  const wait = settings.chime ? chime() : 0;
+  if (wait) { setTimeout(() => say(text), wait); return; }
+  say(text);
+}
+function say(text) {
   if (nativeSpeak(text)) return; // app Android/iOS: motor de voz del sistema
   if (!('speechSynthesis' in globalThis)) return;
   speechSynthesis.cancel();

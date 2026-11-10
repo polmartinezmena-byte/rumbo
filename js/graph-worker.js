@@ -282,11 +282,39 @@ async function routeAny(from, to, level, avoidTolls = false, opts = {}) {
         safe.zbeLimit = zbeFix.stop || zbeFix.retarget || null;
         if (safe.zbeLimit) safe.steps[safe.steps.length - 1].text = 'Has llegado al límite de la zona de bajas emisiones. No entres: con tu etiqueta no puedes circular';
       }
-      safe.graph = key;
-      safe.incidents = incidentsOnRoute(safe, live);
-      safe.zbe = zbeOnRoute(G, safe, safe.path, live, { sticker: opts.sticker || '', now });
-      safe.fuel = foot ? null : fuelOnRoute(safe, live, opts.fuel);
-      safe.avisos = warningsOnRoute(safe, activeWarnings(now));
+      const decorate = (r) => {
+        r.graph = key;
+        r.incidents = incidentsOnRoute(r, live);
+        r.zbe = zbeOnRoute(G, r, r.path, live, { sticker: opts.sticker || '', now });
+        r.fuel = foot ? null : fuelOnRoute(r, live, opts.fuel);
+        r.avisos = warningsOnRoute(r, activeWarnings(now));
+        r.flood = !!G.risk;
+        return r;
+      };
+      decorate(safe);
+      // Alternativa: la mejor ruta que comparte poco con la principal (sus tramos cuestan un 60 % más).
+      if (!foot && !safe.zbeLimit && safe.distance < 400000) {
+        try {
+          const onMain = new Set();
+          for (let k = 0; k + 1 < safe.path.length; k++) {
+            const u = safe.path[k], v = safe.path[k + 1];
+            for (let e = G.off[u]; e < G.off[u + 1]; e++) if (G.tgt[e] === v) onMain.add(e);
+          }
+          const altPen = pen ? Float32Array.from(pen) : new Float32Array(G.tgt.length).fill(1);
+          for (const e of onMain) altPen[e] *= 1.6;
+          const alt = R.route(G, from, to, level, { avoidTolls, pen: altPen, foot, traffic });
+          let shared = 0;
+          for (let k = 0; k + 1 < alt.path.length; k++) {
+            const u = alt.path[k], v = alt.path[k + 1];
+            for (let e = G.off[u]; e < G.off[u + 1]; e++) if (G.tgt[e] === v && onMain.has(e)) { shared += G.dist[e]; break; }
+          }
+          if (alt.duration < safe.duration * 1.4 && shared < alt.distance * 0.7) {
+            decorate(alt);
+            delete alt.path;
+            safe.alts = [alt];
+          }
+        } catch { /* sin alternativa */ }
+      }
       delete safe.path;
       safe.flood = !!G.risk;
       if (level > 0 && G.risk) {
@@ -377,6 +405,8 @@ async function routeOnline(from, to, level, avoidTolls, opts) {
 
   // Límites de velocidad y peajes (y la alternativa con / sin peaje) en paralelo.
   const altP = foot ? null : onlineRoute(from, to, { foot, avoidTolls: !avoidTolls, avoid }).then(annotate).catch(() => null);
+  const altsP = foot || zbeLimit ? null : onlineRoute(from, to, { foot, avoidTolls, avoid, alternates: 1 })
+    .then((x) => Promise.all((x.altTrips || []).filter((a) => a.duration < x.duration * 1.4).slice(0, 1).map(annotate))).catch(() => []);
   await annotate(r);
   const alt = await altP;
   if (alt && Math.abs(alt.tollLen - r.tollLen) > 50) r.tollAlt = { duration: alt.duration, distance: alt.distance, tollLen: alt.tollLen };
@@ -402,6 +432,19 @@ async function routeOnline(from, to, level, avoidTolls, opts) {
   r.fuel = foot ? null : fuelOnRoute(r, live, opts.fuel);
   r.avisos = warningsOnRoute(r, activeWarnings(now));
   delete r.shape;
+  // Alternativas con los mismos avisos (radares, incidencias, ZBE, gasolineras).
+  const alts = (await altsP) || [];
+  for (const a of alts) {
+    Object.assign(a, cams ? camerasOnRoute(cams, a) : {});
+    if (r.traffic) {
+      const prof = trafficProfile(new Date(now));
+      const k = trafficFactor(prof, a.distance / (a.duration || 1));
+      const free = a.duration; a.duration *= k; a.traffic = { label: prof.label, delay: a.duration - free };
+    }
+    Object.assign(a, { level, graph: 'online', incidents: incidentsOnRoute(a, live), zbe: zbeOnCoords(a, zonesAlong(a, live), live, o), fuel: fuelOnRoute(a, live, opts.fuel), avisos: warningsOnRoute(a, activeWarnings(now)) });
+    delete a.shape;
+  }
+  if (alts.length) r.alts = alts;
   return r;
 }
 
