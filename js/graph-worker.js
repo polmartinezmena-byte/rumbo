@@ -32,6 +32,10 @@ const loaded = new Map();  // key → grafo en memoria (máx. 2: los grafos gran
 
 const post = (m) => self.postMessage(m);
 const progress = (id, msg, pct) => post({ id, progress: { msg, pct } });
+// Operaciones que usan mucha memoria: la app lo apunta en el diagnóstico y, si iOS cierra la app en
+// medio, en la siguiente apertura no las repite sola (evita quedarse en negro en bucle).
+const heavy = (on, what) => post({ heavy: on, what });
+const MB = (G) => Math.round(Object.values(G).reduce((s, v) => s + (ArrayBuffer.isView(v) ? v.byteLength : 0), 0) / 1048576);
 
 self.onmessage = async (e) => {
   const { id, type } = e.data;
@@ -102,7 +106,8 @@ async function save(key, G) {
   await db.set('graph:' + key, head);
   catalog[key] = R.stats(G);
   await db.set('catalog', catalog);
-  remember(key, G);
+  // En iPhone no se queda en memoria tras instalarlo: se cargará cuando haga falta una ruta.
+  if (!IOS) remember(key, G);
   return catalog;
 }
 
@@ -180,8 +185,14 @@ async function graph(key) {
     remember(key, G);
     return G;
   }
-  const G = await load(key);
+  // En iPhone, antes de cargar uno grande se suelta todo lo demás.
+  if (IOS) { loaded.clear(); partial.clear(); }
+  heavy(true, 'cargando el mapa ' + key);
+  let G;
+  try { G = await load(key); } finally { heavy(false); }
   if (!G) throw new Error('Falta el mapa descargado: vuelve a descargarlo');
+  partial.delete(key); // ya está entero en memoria
+  post({ heavy: false, what: `mapa ${key} en memoria (${MB(G)} MB)` });
   remember(key, G);
   return G;
 }
@@ -234,26 +245,37 @@ async function downloadArea(b, id) {
 
 // ------------------------------------------------------------------ paquetes por comunidad
 async function installPack({ key, urls, size }, id) {
-  const chunks = [];
-  let got = 0;
-  for (const url of urls) {
-    const r = await fetch(url);
-    if (!r.ok) throw new Error(`No se pudo descargar el paquete (${r.status})`);
-    const reader = r.body.getReader();
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value);
-      got += value.length;
-      progress(id, `Rutas: ${(got / 1048576).toFixed(0)} de ${(size / 1048576).toFixed(0)} MB`, size ? Math.min(0.8, (got / size) * 0.8) : 0.4);
+  // Se descomprime a la vez que se descarga: así nunca están en memoria el paquete comprimido, su
+  // copia y el descomprimido a la vez (en iPhone eso bastaba para que Safari cerrara la app).
+  if (IOS) { loaded.clear(); partial.clear(); }
+  heavy(true, 'instalando el mapa ' + key);
+  try {
+    let got = 0;
+    const parts = [];
+    for (const url of urls) {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`No se pudo descargar el paquete (${r.status})`);
+      const count = new TransformStream({
+        transform(chunk, ctl) {
+          got += chunk.length;
+          progress(id, `Rutas: ${(got / 1048576).toFixed(0)} de ${(size / 1048576).toFixed(0)} MB`, size ? Math.min(0.85, (got / size) * 0.85) : 0.4);
+          ctl.enqueue(chunk);
+        },
+      });
+      parts.push(await new Response(r.body.pipeThrough(count).pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
     }
-  }
-  progress(id, 'Descomprimiendo…', 0.85);
-  const gz = new Blob(chunks).stream().pipeThrough(new DecompressionStream('gzip'));
-  const buf = await new Response(gz).arrayBuffer();
-  const G = deserialize(buf);
-  progress(id, 'Guardando en el dispositivo…', 0.92);
-  return save(key, G);
+    let buf = parts[0];
+    if (parts.length > 1) { // varios ficheros: se unen (raro)
+      const all = new Uint8Array(parts.reduce((s, p) => s + p.byteLength, 0));
+      let o = 0; for (const p of parts) { all.set(new Uint8Array(p), o); o += p.byteLength; }
+      buf = all.buffer;
+    }
+    parts.length = 0;
+    const G = deserialize(buf);
+    buf = null;
+    progress(id, 'Guardando en el dispositivo…', 0.92);
+    return await save(key, G);
+  } finally { heavy(false); }
 }
 
 // ------------------------------------------------------------------ consultas
@@ -518,7 +540,9 @@ async function riskLayer(bbox) {
   const c = [(bbox.s + bbox.n) / 2, (bbox.w + bbox.e) / 2];
   const k = candidates([c]).filter((x) => x !== 'region:es')[0];
   if (!k) return { type: 'FeatureCollection', features: [] };
-  return R.riskLayer(await graph(k), bbox);
+  // Solo las tablas que hacen falta (unos 40-60 MB), no el mapa entero (150-200 MB en una comunidad grande).
+  const G = loaded.get(k) || (await loadFields(k, ['la', 'lo', 'off', 'tgt', 'risk', 'hard'])) || (await graph(k));
+  return R.riskLayer(G, bbox);
 }
 
 async function camerasIn(bbox) {

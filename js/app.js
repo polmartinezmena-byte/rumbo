@@ -44,8 +44,19 @@ const worker = new Worker(new URL('./graph-worker.js', import.meta.url), { type:
 let reqId = 0;
 const pending = new Map();
 worker.onerror = (e) => { step('worker: ' + (e.message || 'error')); globalThis.rumboErr?.('worker: ' + (e.message || 'error'), (e.filename || '').split('/').pop() + ':' + (e.lineno || '')); };
+// Si iOS cierra la app mientras el worker hace algo pesado, queda apuntado (rumbo:heavy) y en la
+// siguiente apertura no se repite solo: ni retomar la ruta ni la capa de riesgo.
+let heavyPrev = null;
+try { heavyPrev = localStorage.getItem('rumbo:heavy'); localStorage.removeItem('rumbo:heavy'); } catch { /* nada */ }
+worker.addEventListener('message', (e) => {
+  const m = e.data;
+  if (!('heavy' in m)) return;
+  if (m.what) step(m.what);
+  try { m.heavy ? localStorage.setItem('rumbo:heavy', m.what || '1') : localStorage.removeItem('rumbo:heavy'); } catch { /* nada */ }
+});
 worker.onmessage = (e) => {
   const m = e.data;
+  if ('heavy' in m) return;
   const p = pending.get(m.id);
   if (!p) return;
   if (m.progress) return p.onProgress?.(m.progress);
@@ -274,7 +285,6 @@ map.on('load', () => {
   });
   drawAreas();
   drawFavs();
-  if (store.get('riskLayer') && hasMaps()) toggleRiskLayer(true);
   refreshLiveLayer();
 });
 
@@ -1980,7 +1990,7 @@ $('#btn-fav-dest').onclick = () => {
 };
 
 // ================================================================== AJUSTES
-const APP_VERSION = '0.8.0';
+const APP_VERSION = '0.8.1';
 globalThis.RUMBO_VERSION = APP_VERSION;
 
 function renderSettings() {
@@ -2210,6 +2220,12 @@ $('#btn-replay-onboarding').onclick = () => { setSheet(null); showOnboarding(); 
 let resume = null;
 try { resume = JSON.parse(sessionStorage.getItem('rumbo:resume')); sessionStorage.removeItem('rumbo:resume'); } catch { /* nada */ }
 if (resume && Date.now() - resume.t > 10 * 60 * 1000) resume = null;
+if (heavyPrev) {
+  step('la vez anterior se cerró: ' + heavyPrev);
+  resume = null;
+  setTimeout(() => toast('La última vez el teléfono cerró Rumbo por falta de memoria (' + heavyPrev.replace(/ region:/, ' de ').replace(/ area$/, ' de tu zona') + '). Esta vez no se ha retomado nada solo. Si vuelve a pasar, comparte el informe de errores desde Ajustes.', 8000), 2500);
+  globalThis.rumboErr?.('Cerrada por el sistema mientras ' + heavyPrev, 'memoria');
+}
 
 step('pidiendo datos guardados');
 call('init').then(async (c) => {
@@ -2218,7 +2234,7 @@ call('init').then(async (c) => {
   drawAreas();
   refreshLiveLayer(); // con los datos en directo guardados, antes de actualizarlos
   refreshLive();
-  if (store.get('riskLayer')) toggleRiskLayer(true);
+  if (store.get('riskLayer') && !heavyPrev) setTimeout(() => toggleRiskLayer(true), 1500);
   updateNet();
   renderDlCard();
   renderQuick();
