@@ -1,5 +1,5 @@
 import { fmtDist, fmtTime, fmtClock, haversine } from './geo.js';
-import { STYLE_URL, MAX_ZOOM, AVG_TILE_KB, prefetchArea, tileList, removeTiles } from './offline-tiles.js';
+import { STYLE_URL, STYLE_DARK, MAX_ZOOM, AVG_TILE_KB, prefetchArea, tileList, removeTiles } from './offline-tiles.js';
 import { Navigator, pointAt, speak, setMuted, isMuted } from './nav.js';
 import { fetchWeather, cachedWeather, LEVELS } from './weather.js';
 import { settings, setSetting, onSettingChange, applyTheme } from './settings.js';
@@ -7,6 +7,7 @@ import { DEV, NATIVE, PACKS } from './config.js';
 import { nativeStop } from './native.js';
 import { keepAwake, allowSleep } from './awake.js';
 import { FreeDrive } from './free-drive.js';
+import { LANE_ANGLE } from './lanes.js';
 import { offlineStyle, registerOfflineProtocol } from './map-offline.js';
 
 applyTheme();
@@ -190,6 +191,7 @@ let mapReady = false;
 map.on('load', () => {
   mapReady = true;
   step('mapa cargado');
+  setTimeout(applyMapNight, 300);
   const firstSymbol = map.getStyle().layers.find((l) => l.type === 'symbol')?.id;
   map.addSource('areas', { type: 'geojson', data: empty });
   map.addLayer({ id: 'areas-line', type: 'line', source: 'areas', paint: { 'line-color': '#f59e0b', 'line-width': 1.5, 'line-dasharray': [2, 2] } }, firstSymbol);
@@ -252,6 +254,16 @@ let catalog = {};           // mapas guardados en el dispositivo (worker)
 let regionIndex = store.get('regionIndex', null); // catálogo de comunidades publicado
 let origin = null, dest = null, route = null, nav = null, simTimer = null;
 let navPos = null, simAlong = 0; // última posición guiada y avance del simulador
+// Túneles: si el GPS calla yendo en marcha, se sigue avanzando por la ruta a la última velocidad.
+let lastFix = { t: 0, along: 0, speed: 0 }, drTimer = null, navAlong = 0;
+function deadReckon() {
+  if (!nav || simTimer || !route) return;
+  const quiet = (Date.now() - lastFix.t) / 1000;
+  if (quiet < 3 || quiet > 120 || lastFix.speed < 3) return; // parado o demasiado tiempo sin señal
+  const along = Math.min(route.distance - 5, lastFix.along + lastFix.speed * quiet);
+  const p = pointAt(route, along);
+  nav.update({ lat: p.lat, lon: p.lon, speed: lastFix.speed, accuracy: 10 });
+}
 let walking = false;              // ruta a pie (volver al coche)
 let car = store.get('car', null); // dónde aparcaste
 let follow = true, gps = null, watchId = null, centerOnFix = false;
@@ -446,12 +458,15 @@ function onPos(p) {
   const c = p.coords;
   const first = !gps;
   gps = { lat: c.latitude, lon: c.longitude, accuracy: c.accuracy, speed: c.speed ?? 0, heading: c.heading };
+  // Lecturas muy imprecisas (p. ej. a la salida de un túnel) no mueven la flecha durante el guiado.
+  if (nav && !simTimer && c.accuracy > 80 && Date.now() - lastFix.t < 10000) return;
+  lastFix = { t: Date.now(), along: navAlong, speed: gps.speed > 0 ? gps.speed : lastFix.speed * 0.9 };
   if (!simTimer) placeMe(gps.lon, gps.lat, gps.heading);
   if (centerOnFix) {
     centerOnFix = false;
     map.flyTo({ center: [gps.lon, gps.lat], zoom: Math.max(map.getZoom(), 15) });
   }
-  if (first) refreshWeather();
+  if (first) { refreshWeather(); applyMapNight(); }
   if (nav && !simTimer) nav.update(gps);
   else if (!nav) free.update(gps);
   if (sheetNow === 'sos') updateSosCoords();
@@ -639,6 +654,67 @@ async function toggleRiskLayer(on, manual = false) {
 }
 $('#risk-layer').onchange = (e) => toggleRiskLayer(e.target.checked, true);
 
+// ------------------------------------------------------------------ mapa de noche
+// Automático: oscuro desde que el sol baja del horizonte (crepúsculo civil) hasta que amanece,
+// calculado para tu posición. También se puede fijar en Ajustes → Apariencia.
+let incImages = [];
+let mapDark = false;
+function sunAltitude(lat, lon, date = new Date()) {
+  const rad = Math.PI / 180;
+  const d = date.getTime() / 86400000 - 10957.5; // días desde J2000
+  const g = (357.529 + 0.98560028 * d) * rad;
+  const q = 280.459 + 0.98564736 * d;
+  const L = (q + 1.915 * Math.sin(g) + 0.02 * Math.sin(2 * g)) * rad;
+  const e = (23.439 - 0.00000036 * d) * rad;
+  const dec = Math.asin(Math.sin(e) * Math.sin(L));
+  const ra = Math.atan2(Math.cos(e) * Math.sin(L), Math.cos(L));
+  const gmst = (18.697374558 + 24.06570982441908 * d) % 24;
+  const ha = ((gmst * 15 + lon) * rad) - ra;
+  return Math.asin(Math.sin(lat * rad) * Math.sin(dec) + Math.cos(lat * rad) * Math.cos(dec) * Math.cos(ha)) / rad;
+}
+function wantDarkMap() {
+  if (settings.mapNight === 'on') return true;
+  if (settings.mapNight === 'off') return false;
+  const p = gps || { lat: map.getCenter().lat, lon: map.getCenter().lng };
+  return sunAltitude(p.lat, p.lon) < -4;
+}
+async function applyMapNight() {
+  if (!mapReady) return;
+  const want = wantDarkMap();
+  if (want === mapDark) return;
+  let next;
+  try { next = await offlineStyle(want ? STYLE_DARK : STYLE_URL); } catch { return; } // sin conexión y sin copia: se queda como está
+  mapDark = want;
+  step(`mapa ${want ? 'de noche' : 'de día'}`);
+  // Con la interfaz en «Automático», de noche también se oscurece (no deslumbra al conducir).
+  if (settings.theme === 'auto') {
+    if (want) document.documentElement.setAttribute('data-theme', 'dark');
+    else document.documentElement.removeAttribute('data-theme');
+  }
+  // Se cambia el estilo base conservando las capas de Rumbo (ruta, radares, ZBE, favoritos…).
+  map.setStyle(next, {
+    diff: false,
+    transformStyle: (prev, nxt) => {
+      const base = new Set(Object.keys(nxt.sources));
+      const sources = { ...nxt.sources };
+      for (const [k, v] of Object.entries(prev.sources)) if (!base.has(k)) sources[k] = v;
+      const prevFirst = prev.layers.findIndex((l) => l.type === 'symbol' && base.has(l.source));
+      const mine = prev.layers.map((l, i) => ({ l, i })).filter(({ l }) => l.source && !base.has(l.source));
+      const under = mine.filter(({ i }) => prevFirst >= 0 && i < prevFirst).map(({ l }) => l);
+      const over = mine.filter(({ i }) => !(prevFirst >= 0 && i < prevFirst)).map(({ l }) => l);
+      const first = nxt.layers.findIndex((l) => l.type === 'symbol');
+      const at = first < 0 ? nxt.layers.length : first;
+      return { ...nxt, sources, layers: [...nxt.layers.slice(0, at), ...under, ...nxt.layers.slice(at), ...over] };
+    },
+  });
+  map.once('style.load', () => {
+    addCameraIcons();
+    for (const [name, img] of incImages) if (!map.hasImage(name)) map.addImage(name, img, { pixelRatio: 2 });
+    apply3d();
+  });
+}
+setInterval(applyMapNight, 5 * 60 * 1000);
+
 function apply3d() {
   for (const l of map.getStyle().layers) if (l.type === 'fill-extrusion') map.setLayoutProperty(l.id, 'visibility', settings.buildings3d ? 'visible' : 'none');
 }
@@ -657,6 +733,9 @@ function note(cls, html) { return `<div class="live-note ${cls}">${html}</div>`;
 function renderLiveNotes() {
   if (!route) return;
   const out = [];
+  // Tráfico típico de esta hora (estimación por franja horaria, no tráfico en directo).
+  const tr = route.traffic;
+  if (tr && tr.delay >= 90) out.push(note(tr.delay >= 600 ? 'warn' : 'info', `Tráfico típico a esta hora (${tr.label}): unos <b>${Math.round(tr.delay / 60)} min</b> más que con vía libre. Es una estimación por franja horaria, no tráfico en directo.`));
   // ZBE: agrupadas por nombre (una zona puede aparecer en varios trozos)
   const byZone = new Map();
   for (const z of route.zbe || []) {
@@ -742,7 +821,8 @@ function addLiveLayers(firstSymbol) {
     return { width: S * R, height: S * R, data: x.getImageData(0, 0, S * R, S * R).data };
   };
   const ICONS = { cortada: ['⛔', '#fee2e2'], calzada: ['⛔', '#fee2e2'], inundacion: ['🌊', '#dbeafe'], accidente: ['💥', '#fde68a'], carril: ['🚧', '#fef3c7'], obras: ['🚧', '#fef3c7'], retencion: ['🐢', '#ffedd5'], meteo: ['❄️', '#e0f2fe'], obstaculo: ['⚠️', '#fef3c7'], otro: ['⚠️', '#f1f5f9'] };
-  for (const [k, [e, bg]] of Object.entries(ICONS)) map.addImage('inc-' + k, icon(e, bg), { pixelRatio: 2 });
+  incImages = Object.entries(ICONS).map(([k, [e, bg]]) => ['inc-' + k, icon(e, bg)]);
+  for (const [name, img] of incImages) map.addImage(name, img, { pixelRatio: 2 });
   map.addSource('live-inc', { type: 'geojson', data: empty });
   map.addLayer({ id: 'live-inc-icon', type: 'symbol', source: 'live-inc', minzoom: 8,
     layout: { 'icon-image': ['concat', 'inc-', ['get', 'k']], 'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.5, 14, 0.85], 'icon-allow-overlap': true, 'icon-pitch-alignment': 'viewport' } });
@@ -894,7 +974,7 @@ async function computeRoute({ fit = true, foot = walking } = {}) {
     const t0 = performance.now();
     route = await call('route', {
       from: [from.lat, from.lon], to: [dest.lat, dest.lon], level: foot ? 0 : floodLevel(), avoidTolls: settings.avoidTolls,
-      opts: { sticker: settings.sticker, avoidZbe: settings.avoidZbe, fuel: settings.fuel, now: Date.now(), foot },
+      opts: { sticker: settings.sticker, avoidZbe: settings.avoidZbe, fuel: settings.fuel, now: Date.now(), foot, traffic: settings.traffic },
     });
     route.ms = Math.round(performance.now() - t0);
   } catch (e) {
@@ -1081,6 +1161,8 @@ function startNav(simulate) {
   setSheet('nav');
   keepAwake('nav');
 
+  clearInterval(drTimer);
+  drTimer = setInterval(deadReckon, 1000);
   nav = new Navigator(route, {
     onUpdate: renderNav,
     onOffRoute: () => {
@@ -1125,9 +1207,24 @@ function startNav(simulate) {
 
 function renderNav(s) {
   navPos = { lat: s.snapped[1], lon: s.snapped[0] };
+  navAlong = s.along;
   $('#b-icon').innerHTML = maneuverSvg(s.step);
   $('#b-dist').textContent = s.step.type === 'arrive' && s.dist < 30 ? 'Llegando' : fmtDist(s.dist);
   $('#b-text').textContent = s.step.text;
+  // Carriles: se enseñan al acercarte (último kilómetro); los que sirven, resaltados.
+  const lanes = s.step.lanes && s.dist < 1200 ? s.step.lanes : null;
+  $('#b-lanes').hidden = !lanes;
+  if (lanes) {
+    const key = JSON.stringify(lanes);
+    if ($('#b-lanes').dataset.key !== key) {
+      $('#b-lanes').dataset.key = key;
+      $('#b-lanes').innerHTML = lanes.map((l) => {
+        const ind = l.ok ? l.ind.find((x) => LANE_ANGLE[x] !== undefined) : l.ind[0];
+        const a = LANE_ANGLE[ind] ?? 0;
+        return `<span class="lane${l.ok ? ' ok' : ''}"><svg viewBox="0 0 24 24"><path d="M12 21v-8" /><path transform="rotate(${a} 12 13)" d="M12 13V4m-4 4 4-4 4 4"/></svg></span>`;
+      }).join('');
+    }
+  }
   $('#b-warn').hidden = !s.warn;
   if (s.warn) $('#b-warn').textContent = '⚠️ ' + s.warn;
   const kmh = s.speed * 3.6;
@@ -1224,6 +1321,7 @@ function stopNav() {
   if (nav && !walking && dest && navPos && haversine(navPos.lat, navPos.lon, dest.lat, dest.lon) < 250) saveCar();
   navPos = null;
   clearInterval(simTimer);
+  clearInterval(drTimer);
   simTimer = null;
   nav = null;
   if (!nativeStop()) globalThis.speechSynthesis?.cancel(); // corta la voz en curso
@@ -1586,10 +1684,11 @@ onSettingChange((key) => {
   if (key === 'voice') renderMute();
   if (key === 'theme') applyTheme();
   if (key === 'buildings3d') apply3d();
+  if (key === 'mapNight') applyMapNight();
   if (key === 'screenAlways') settings.screenAlways ? keepAwake('siempre') : allowSleep('siempre');
   if (key === 'emergencyNumber') renderEmergencyNumber();
   if (key === 'floodMode') renderRain();
-  if (['avoidTolls', 'floodMode', 'sticker', 'avoidZbe', 'fuel'].includes(key) && dest && sheetNow !== 'rain') computeRoute({ fit: false });
+  if (['avoidTolls', 'floodMode', 'sticker', 'avoidZbe', 'fuel', 'traffic'].includes(key) && dest && sheetNow !== 'rain') computeRoute({ fit: false });
   if (['sticker', 'fuel', 'showFuel', 'showIncidents'].includes(key)) refreshLiveLayer();
 });
 

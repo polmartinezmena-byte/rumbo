@@ -1,6 +1,8 @@
 // Descarga previa de las teselas vectoriales (OpenFreeMap) de una zona a la Cache Storage,
 // para que el mapa se dibuje sin conexión. El service worker las sirve desde la misma caché.
 export const STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty';
+// Mapa de noche: mismas teselas y mismos iconos que el de día (también sirve sin conexión).
+export const STYLE_DARK = 'https://tiles.openfreemap.org/styles/dark';
 export const TILE_CACHE = 'rumbo-tiles-v1';
 export const MAX_ZOOM = 14; // las teselas de OpenFreeMap llegan a z14; MapLibre sobre-amplía el resto.
 

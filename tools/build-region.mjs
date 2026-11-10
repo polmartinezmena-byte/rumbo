@@ -58,7 +58,7 @@ log('Caja:', JSON.stringify(bbox));
 // ---------------------------------------------------------------- 2. filtros (los mismos que la consulta Overpass)
 const HW = new Set((MAIN ? 'motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link' : HIGHWAYS).split('|'));
 const WW = new Set(WATERWAYS.split('|'));
-const KEEP = ['highway', 'oneway', 'junction', 'maxspeed', 'name', 'ref', 'bridge', 'tunnel', 'layer', 'covered', 'ford', 'flood_prone', 'toll', 'toll:motorcar', 'maxspeed:forward', 'maxspeed:backward'];
+const KEEP = ['highway', 'oneway', 'junction', 'maxspeed', 'name', 'ref', 'bridge', 'tunnel', 'layer', 'covered', 'ford', 'flood_prone', 'toll', 'toll:motorcar', 'maxspeed:forward', 'maxspeed:backward', 'turn:lanes', 'turn:lanes:forward', 'turn:lanes:backward'];
 const keepRoad = (t) =>
   HW.has(t.highway) && t.area !== 'yes' &&
   !/^(private|no)$/.test(t.access || '') &&

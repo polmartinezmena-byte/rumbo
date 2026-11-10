@@ -33,8 +33,8 @@ async function networkFirstJson(url, timeout = 5000) {
 }
 
 /** Estilo del mapa listo para funcionar sin conexión. */
-export async function offlineStyle() {
-  const style = await cacheFirstJson(STYLE_URL);
+export async function offlineStyle(url = STYLE_URL) {
+  const style = await cacheFirstJson(url);
   for (const src of Object.values(style.sources)) {
     if (src.type !== 'vector' && src.type !== 'raster') continue;
     if (src.url && !src.tiles) {

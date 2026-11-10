@@ -16,6 +16,7 @@ import {
   penalties, incidentsOnRoute, zbeOnRoute, fuelOnRoute, liveLayer, warningsOnRoute, warningsAt, zbeGuard,
   zoneAt, zonesAlong, zbeOnCoords, bannedZones, closuresOnRoute,
 } from './live-route.js';
+import { trafficProfile, trafficFactor } from './traffic.js';
 import { isOnline, onlineRoute, annotate, searchOnline, nearbyOnline } from './online.js';
 import { activeWarnings } from './live.js';
 import { PACKS } from './config.js';
@@ -267,14 +268,15 @@ async function routeAny(from, to, level, avoidTolls = false, opts = {}) {
       // ---- ZBE donde tu etiqueta no puede entrar: la ruta nunca te mete dentro.
       const zbeFix = foot ? null : zbeGuard(G, live, from, to, opts, now);
       if (zbeFix?.to) to = zbeFix.to;
-      let safe = R.route(G, from, to, level, { avoidTolls, pen, foot });
+      const traffic = opts.traffic ? now : null;
+      let safe = R.route(G, from, to, level, { avoidTolls, pen, foot, traffic });
       if (zbeFix) {
         // Si aun así la ruta entra (no hay forma de rodearla), se corta en el límite de la zona.
         const cut = zbeFix.firstBannedIndex(safe.path);
         if (cut > 0) {
           const stop = safe.path[cut - 1];
           const name = zbeFix.zoneName(safe.path[cut]);
-          safe = R.route(G, from, [G.la[stop], G.lo[stop]], level, { avoidTolls, pen, foot });
+          safe = R.route(G, from, [G.la[stop], G.lo[stop]], level, { avoidTolls, pen, foot, traffic });
           zbeFix.stop = { name, reason: 'sin-alternativa' };
         }
         safe.zbeLimit = zbeFix.stop || zbeFix.retarget || null;
@@ -289,7 +291,7 @@ async function routeAny(from, to, level, avoidTolls = false, opts = {}) {
       safe.flood = !!G.risk;
       if (level > 0 && G.risk) {
         // Compara con la ruta más rápida para explicar qué se evita y cuánto cuesta.
-        const fast = R.route(G, from, to, 0, { avoidTolls, pen });
+        const fast = R.route(G, from, to, 0, { avoidTolls, pen, traffic });
         delete fast.path;
         safe.compare = {
           fastDuration: fast.duration,
@@ -300,7 +302,7 @@ async function routeAny(from, to, level, avoidTolls = false, opts = {}) {
       }
       // Alternativa con / sin peaje para poder elegir.
       if (G.toll) {
-        const alt = foot ? null : avoidTolls ? R.route(G, from, to, level, { pen }) : safe.tollLen > 0 ? R.route(G, from, to, level, { avoidTolls: true, pen }) : null;
+        const alt = foot ? null : avoidTolls ? R.route(G, from, to, level, { pen, traffic }) : safe.tollLen > 0 ? R.route(G, from, to, level, { avoidTolls: true, pen, traffic }) : null;
         if (alt && Math.abs(alt.tollLen - safe.tollLen) > 50) safe.tollAlt = { duration: alt.duration, distance: alt.distance, tollLen: alt.tollLen };
       }
       return safe;
@@ -384,6 +386,14 @@ async function routeOnline(from, to, level, avoidTolls, opts) {
   if (zbeLimit) {
     r.zbeLimit = zbeLimit;
     r.steps[r.steps.length - 1].text = 'Has llegado al límite de la zona de bajas emisiones. No entres: con tu etiqueta no puedes circular';
+  }
+  if (opts.traffic && !foot) {
+    const prof = trafficProfile(new Date(now));
+    const k = trafficFactor(prof, r.distance / (r.duration || 1));
+    const free = r.duration;
+    r.duration *= k;
+    if (r.tollAlt) r.tollAlt.duration *= k;
+    r.traffic = { label: prof.label, delay: r.duration - free };
   }
   r.level = level;
   r.graph = 'online';

@@ -40,6 +40,19 @@ export function decodePolyline(str, precision = 6) {
 }
 
 // ------------------------------------------------------------------ instrucciones en español
+// Carriles de Valhalla: cada dirección es un bit; «active»/«valid» marcan los que sirven.
+const LANE_BITS = [[1, 'none'], [2, 'through'], [4, 'sharp_left'], [8, 'left'], [16, 'slight_left'], [32, 'slight_right'], [64, 'right'], [128, 'sharp_right'], [256, 'reverse'], [512, 'merge_to_left'], [1024, 'merge_to_right']];
+function valhallaLanes(list) {
+  if (!Array.isArray(list) || list.length < 2) return undefined;
+  const lanes = list.map((l) => ({
+    ind: LANE_BITS.filter(([b]) => l.directions & b).map(([, n]) => n),
+    ok: !!(l.active || l.valid),
+  }));
+  if (!lanes.some((l) => l.ok) || lanes.every((l) => l.ok)) return undefined;
+  for (const l of lanes) if (!l.ind.length) l.ind = ['none'];
+  return lanes;
+}
+
 const SIDE = (right) => (right ? 'derecha' : 'izquierda');
 function stepFromManeuver(m, next, coords) {
   const name = m.street_names?.[0] || '';
@@ -87,7 +100,7 @@ function buildRoute(trip, foot) {
     const s = stepFromManeuver(m, leg.maneuvers[k + 1], coords);
     if (!s) return;
     const i = Math.min(m.begin_shape_index, coords.length - 1);
-    steps.push({ ...s, name: m.street_names?.[0] || '', along: cum[i], i });
+    steps.push({ ...s, name: m.street_names?.[0] || '', along: cum[i], i, lanes: s.type === 'turn' ? valhallaLanes(m.lanes) : undefined });
   });
   if (steps[0]?.type !== 'depart') steps.unshift({ type: 'depart', mod: 'straight', angle: 0, name: '', along: 0, i: 0, text: 'Sigue la ruta' });
   if (steps[steps.length - 1].type !== 'arrive') steps.push({ type: 'arrive', mod: 'arrive', angle: 0, name: '', along: cum[cum.length - 1], i: coords.length - 1, text: 'Has llegado a tu destino' });
@@ -113,7 +126,7 @@ export async function onlineRoute(from, to, { foot = false, avoidTolls = false, 
     costing: foot ? 'pedestrian' : 'auto',
     costing_options: foot ? {} : { auto: { use_tolls: avoidTolls ? 0 : 0.5 } },
     exclude_locations: avoid.slice(0, 40).map(([lat, lon]) => ({ lat, lon })),
-    language: 'es', units: 'kilometers', directions_type: 'maneuvers',
+    language: 'es', units: 'kilometers', directions_type: 'maneuvers', turn_lanes: true,
   };
   const j = await post('/route', body);
   return buildRoute(j.trip, foot);

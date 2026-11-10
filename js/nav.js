@@ -3,6 +3,7 @@
 import { bearing, fmtDistSpeech } from './geo.js';
 import { settings } from './settings.js';
 import { nativeSpeak, nativeStop } from './native.js';
+import { lanesSpeech } from './lanes.js';
 
 const RAD = Math.PI / 180;
 const M_PER_DEG = 111320;
@@ -120,7 +121,8 @@ export class Navigator {
       speak(step.text);
     } else if (dist <= 400 && dist > nearTh + 80 && !this.spoken.has(key + 'f')) {
       this.spoken.add(key + 'f');
-      speak(`En ${fmtDistSpeech(dist)}, ${lowerFirst(step.text)}`);
+      const lane = lanesSpeech(step.lanes);
+      speak(`En ${fmtDistSpeech(dist)}, ${lowerFirst(step.text)}${lane ? `. ${lane}` : ''}`);
     }
 
     // Avisos de tramos con riesgo de inundación (solo con el modo ruta segura activo).

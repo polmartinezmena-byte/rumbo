@@ -7,12 +7,14 @@ export const DEFAULTS = {
   alertSection: true,        // radares de tramo
   alertRedLight: true,       // semáforos con cámara
   freeDrive: true,           // avisos también conduciendo sin ruta
+  traffic: true,             // tráfico típico por franja horaria en rutas y tiempos de llegada
   speedWarning: true,        // aviso al superar el límite
   speedMargin: 5,            // km/h de margen antes de avisar
   avoidTolls: false,
   floodMode: 'auto',         // auto | on | off
   emergencyNumber: '112',
   theme: 'auto',             // auto | light | dark
+  mapNight: 'auto',          // mapa oscuro: auto (de noche) | on | off
   screenAlways: false,       // pantalla encendida con la app abierta (si no, solo al navegar y al descargar)
   sticker: '',               // etiqueta DGT: '0' | 'ECO' | 'C' | 'B' | 'A' (sin etiqueta) | '' (no lo sé)
   avoidZbe: true,            // evitar las ZBE donde la etiqueta no puede entrar

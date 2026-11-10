@@ -104,6 +104,7 @@
     <div class="b-body">
       <div id="b-dist" class="b-dist"></div>
       <div id="b-text" class="b-text"></div>
+      <div id="b-lanes" class="b-lanes" hidden></div>
       <div id="b-warn" class="b-warn" hidden></div>
       <div id="b-radar" class="b-radar" hidden></div>
       <div id="b-section" class="b-section" hidden></div>
@@ -275,6 +276,7 @@
         <label class="set"><span>Radares fijos</span><input type="checkbox" class="switch" data-set="alertFixed"></label>
         <label class="set"><span>Radares de tramo</span><input type="checkbox" class="switch" data-set="alertSection"></label>
         <label class="set"><span>Semáforos con cámara</span><input type="checkbox" class="switch" data-set="alertRedLight"></label>
+        <label class="set"><span>Tráfico por hora del día <small class="muted">(horas punta y fines de semana en la ruta y la llegada)</small></span><input type="checkbox" class="switch" data-set="traffic"></label>
         <label class="set"><span>Avisos sin ruta <small class="muted">(radares, tramos y semáforos aunque no elijas destino)</small></span><input type="checkbox" class="switch" data-set="freeDrive"></label>
         <label class="set"><span>Avisar si supero el límite de velocidad</span><input type="checkbox" class="switch" data-set="speedWarning"></label>
         <div class="set col"><span>Margen antes de avisar</span>
@@ -311,6 +313,11 @@
         <label class="set"><span>Pantalla siempre encendida <small class="muted">(con la app abierta; al navegar se mantiene encendida siempre)</small></span><input type="checkbox" class="switch" data-set="screenAlways"></label>
         <label class="set"><span>Edificios en 3D <small class="muted">(desactívalo si el mapa va lento)</small></span><input type="checkbox" class="switch" data-set="buildings3d"></label>
         <div class="set col">
+          <span class="small muted">Mapa</span>
+          <div class="seg" data-seg="mapNight">
+            <button data-v="auto">De noche, oscuro</button><button data-v="off">Siempre claro</button><button data-v="on">Siempre oscuro</button>
+          </div>
+          <span class="small muted">Interfaz</span>
           <div class="seg" data-seg="theme">
             <button data-v="auto">Automático</button><button data-v="light">Claro</button><button data-v="dark">Oscuro</button>
           </div>

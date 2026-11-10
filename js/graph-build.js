@@ -5,7 +5,7 @@ import { haversine, norm } from './geo.js';
 import { nodeRisk, edgeRisk, officialClassAt, CLASS_RISK } from './flood.js';
 import { buildCameras, isCameraNode } from './radars.js';
 
-export const GRAPH_VERSION = 4;
+export const GRAPH_VERSION = 5; // 5: carriles (turn:lanes)
 
 // Límite de velocidad (km/h) de una vía. Devuelve [límite, estimado]. Si OSM no lo trae se aplican
 // las reglas generales del Reglamento General de Circulación solo donde no hay ambigüedad:
@@ -143,8 +143,18 @@ export function build(input, bbox, dem = null, onProgress) {
     return i;
   };
 
+  // Carriles (turn:lanes de OpenStreetMap, p. ej. "left|through|through;right"): tabla de textos únicos.
+  const lanes = [];
+  const laneIdx = new Map();
+  const laneOf = (s) => {
+    if (!s || !s.includes('|')) return -1; // con un solo carril no hay nada que indicar
+    let i = laneIdx.get(s);
+    if (i === undefined) { i = lanes.length; lanes.push(s); laneIdx.set(s, i); }
+    return i;
+  };
+
   // Primera pasada: nodos y aristas (el riesgo necesita conocer todos los nodos antes).
-  const ef = [], et = [], ew = [], ed = [], en = [], er = [], eway = [], etoll = [], elim = [], einf = [];
+  const ef = [], et = [], ew = [], ed = [], en = [], er = [], eway = [], etoll = [], elim = [], einf = [], eln = [];
   const streets = new Map();
   let maxMs = 1;
   for (let wi = 0; wi < ways.length; wi++) {
@@ -166,6 +176,9 @@ export function build(input, bbox, dem = null, onProgress) {
     const toll = t.toll === 'yes' || t['toll:motorcar'] === 'yes' ? 1 : 0;
     const [limF, infF] = speedLimit(t, true);
     const [limB, infB] = speedLimit(t, false);
+    // En vías de un sentido vale turn:lanes; en las de doble sentido, cada sentido tiene el suyo.
+    const lnF = laneOf(t['turn:lanes:forward'] || (ow !== 0 ? t['turn:lanes'] : ''));
+    const lnB = laneOf(t['turn:lanes:backward'] || (ow === -1 ? t['turn:lanes'] : ''));
     if (t.name && !streets.has(t.name)) {
       const c = coord.get(nodes[nodes.length >> 1]);
       if (c) streets.set(t.name, c);
@@ -177,8 +190,8 @@ export function build(input, bbox, dem = null, onProgress) {
       const d = haversine(la[a], lo[a], la[b], lo[b]);
       const s = d / mps;
       const r = rb ? 1 : 0;
-      if (ow >= 0) { ef.push(a); et.push(b); ew.push(s); ed.push(d); en.push(nm); er.push(r); eway.push(wi); etoll.push(toll); elim.push(ow === -1 ? limB : limF); einf.push(ow === -1 ? infB : infF); }
-      if (ow <= 0) { ef.push(b); et.push(a); ew.push(s); ed.push(d); en.push(nm); er.push(r); eway.push(wi); etoll.push(toll); elim.push(limB); einf.push(infB); }
+      if (ow >= 0) { ef.push(a); et.push(b); ew.push(s); ed.push(d); en.push(nm); er.push(r); eway.push(wi); etoll.push(toll); elim.push(ow === -1 ? limB : limF); einf.push(ow === -1 ? infB : infF); eln.push(ow === -1 ? lnB : lnF); }
+      if (ow <= 0) { ef.push(b); et.push(a); ew.push(s); ed.push(d); en.push(nm); er.push(r); eway.push(wi); etoll.push(toll); elim.push(limB); einf.push(infB); eln.push(lnB); }
     }
   }
 
@@ -194,10 +207,10 @@ export function build(input, bbox, dem = null, onProgress) {
   for (let i = 0; i < n; i++) off[i + 1] += off[i];
   const pos = off.slice(0, n);
   const tgt = new Int32Array(m), wt = new Float32Array(m), dist = new Float32Array(m);
-  const nmA = new Int32Array(m), rbA = new Uint8Array(m), risk = new Uint8Array(m), hard = new Uint8Array(m), tollA = new Uint8Array(m), limA = new Uint8Array(m), limInf = new Uint8Array(m);
+  const nmA = new Int32Array(m), rbA = new Uint8Array(m), risk = new Uint8Array(m), hard = new Uint8Array(m), tollA = new Uint8Array(m), limA = new Uint8Array(m), limInf = new Uint8Array(m), lnA = new Int32Array(m);
   for (let j = 0; j < m; j++) {
     const p = pos[ef[j]]++;
-    tgt[p] = et[j]; wt[p] = ew[j]; dist[p] = ed[j]; nmA[p] = en[j]; rbA[p] = er[j]; tollA[p] = etoll[j]; limA[p] = elim[j]; limInf[p] = einf[j];
+    tgt[p] = et[j]; wt[p] = ew[j]; dist[p] = ed[j]; nmA[p] = en[j]; rbA[p] = er[j]; tollA[p] = etoll[j]; limA[p] = elim[j]; limInf[p] = einf[j]; lnA[p] = eln[j];
     // Punto medio del tramo: una carretera larga puede cruzar una zona oficial entre dos cruces.
     const rMid = grid ? CLASS_RISK[officialClassAt(grid, (la[ef[j]] + la[et[j]]) / 2, (lo[ef[j]] + lo[et[j]]) / 2)] : 0;
     const [r, h] = edgeRisk(nRisk[ef[j]], nRisk[et[j]], ways[eway[j]].tags, isFord[ef[j]], isFord[et[j]], rMid);
@@ -237,7 +250,7 @@ export function build(input, bbox, dem = null, onProgress) {
 
   return {
     version: GRAPH_VERSION, date: Date.now(), bbox, maxMs, dem: !!dem, waterways: waterways.length, official: !!grid,
-    la: Float64Array.from(la), lo: Float64Array.from(lo), off, tgt, wt, dist, nm: nmA, rb: rbA, risk, hard, toll: tollA, lim: limA, limInf, names, snap, ...cams,
+    la: Float64Array.from(la), lo: Float64Array.from(lo), off, tgt, wt, dist, nm: nmA, rb: rbA, risk, hard, toll: tollA, lim: limA, limInf, ln: lnA, lanes, names, snap, ...cams,
     sName, sNorm, sKind, sLa: Float64Array.from(sLa), sLo: Float64Array.from(sLo),
     eKind, eName, ePhone, eLa: Float64Array.from(eLa), eLo: Float64Array.from(eLo),
   };

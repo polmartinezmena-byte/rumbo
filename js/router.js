@@ -3,6 +3,8 @@
 import { fastDist, bearing, norm } from './geo.js';
 import { EMERGENCY } from './graph-build.js';
 import { camerasOnRoute } from './radars.js';
+import { lanesFor } from './lanes.js';
+import { trafficProfile, trafficFactor } from './traffic.js';
 
 const ORD = ['primera', 'segunda', 'tercera', 'cuarta', 'quinta', 'sexta', 'séptima', 'octava'];
 const CARD = ['norte', 'noreste', 'este', 'sureste', 'sur', 'suroeste', 'oeste', 'noroeste'];
@@ -108,7 +110,7 @@ function reverse(G) {
   return G._rev;
 }
 
-function astar(G, s, t, level, hardPenalty, avoidTolls = false, pen = null, foot = false) {
+function astar(G, s, t, level, hardPenalty, avoidTolls = false, pen = null, foot = false, prof = null) {
   const { la, lo, off, tgt, wt, risk, hard, toll } = G;
   const tollOn = avoidTolls && toll && !foot;
   const rev = foot ? reverse(G) : null;
@@ -138,6 +140,7 @@ function astar(G, s, t, level, hardPenalty, avoidTolls = false, pen = null, foot
       if (closed[v]) continue;
       if (foot && G.lim && G.lim[e] >= 90) continue; // autopistas y autovías: no se camina
       let c = foot ? G.dist[e] / WALK : wt[e];
+      if (prof) c *= trafficFactor(prof, G.dist[e] / (wt[e] || 1));
       if (pen && !foot) c *= pen[e];
       if (hasRisk) {
         const r = risk[e] / 255;
@@ -159,7 +162,9 @@ function astar(G, s, t, level, hardPenalty, avoidTolls = false, pen = null, foot
   return { path: path.reverse(), edges: edges.reverse() };
 }
 
-export function route(G, from, to, level = 0, { avoidTolls = false, pen = null, foot = false } = {}) {
+export function route(G, from, to, level = 0, { avoidTolls = false, pen = null, foot = false, traffic = null } = {}) {
+  // Tráfico típico de la hora (traffic = momento de salida en ms); a pie no aplica.
+  const prof = traffic && !foot ? trafficProfile(new Date(traffic)) : null;
   const S = nearest(G, from[0], from[1]);
   const T = nearest(G, to[0], to[1]);
   if (S.d > 1500) throw new Error('El punto de salida está fuera de la zona descargada');
@@ -168,11 +173,11 @@ export function route(G, from, to, level = 0, { avoidTolls = false, pen = null, 
   if (level > 0 && !G.risk) level = 0; // zona descargada con una versión antigua
 
   if (foot) level = 0;
-  let res = astar(G, S.i, T.i, level, HARD[level], avoidTolls, pen, foot);
+  let res = astar(G, S.i, T.i, level, HARD[level], avoidTolls, pen, foot, prof);
   let forcedHard = false;
-  if (!res && level === 2) { res = astar(G, S.i, T.i, level, 200, avoidTolls, pen, foot); forcedHard = true; }
+  if (!res && level === 2) { res = astar(G, S.i, T.i, level, 200, avoidTolls, pen, foot, prof); forcedHard = true; }
   if (!res) throw new Error('No hay ninguna ruta posible entre esos dos puntos');
-  const out = describe(G, res.path, res.edges, foot);
+  const out = describe(G, res.path, res.edges, foot, prof);
   out.path = res.path;
   out.foot = foot;
   if (pen) out.penalized = res.edges.some((e) => pen[e] >= 100);
@@ -183,13 +188,15 @@ export function route(G, from, to, level = 0, { avoidTolls = false, pen = null, 
   return out;
 }
 
-function describe(G, path, edges, foot = false) {
+function describe(G, path, edges, foot = false, prof = null) {
   const { lo, la, wt, risk, hard } = G;
   const { steps, cum } = buildSteps(G, path, edges, foot);
-  let duration = 0, tollLen = 0;
+  let duration = 0, freeDuration = 0, tollLen = 0;
   const segRisk = new Array(edges.length);
   for (let i = 0; i < edges.length; i++) {
-    duration += foot ? G.dist[edges[i]] / WALK : wt[edges[i]];
+    const w = foot ? G.dist[edges[i]] / WALK : wt[edges[i]];
+    freeDuration += w;
+    duration += prof ? w * trafficFactor(prof, G.dist[edges[i]] / (wt[edges[i]] || 1)) : w;
     if (G.toll?.[edges[i]]) tollLen += G.dist[edges[i]];
     segRisk[i] = risk ? (hard[edges[i]] ? 1 : Math.round((risk[edges[i]] / 255) * 100) / 100) : 0;
   }
@@ -217,6 +224,7 @@ function describe(G, path, edges, foot = false) {
     steps,
     distance: cum[cum.length - 1],
     duration,
+    traffic: prof ? { label: prof.label, delay: Math.max(0, duration - freeDuration) } : null,
   };
 }
 
@@ -244,6 +252,16 @@ function buildSteps(G, path, edges, foot = false) {
     const b1 = bearing(la[a], lo[a], la[j], lo[j]);
     const b2 = bearing(la[j], lo[j], la[b], lo[b]);
     return ((b2 - b1 + 540) % 360) - 180;
+  };
+
+  // Carriles del tramo que llega al cruce (los últimos 150 m antes de la maniobra).
+  const lanesAt = (i, t) => {
+    if (!G.ln || foot) return undefined;
+    for (let k = i - 1; k >= 0 && cum[i] - cum[k] < 150; k--) {
+      const li = G.ln[edges[k]];
+      if (li >= 0) return lanesFor(G.lanes[li], t.mod, t.angle) || undefined;
+    }
+    return undefined;
   };
 
   const steps = [];
@@ -284,7 +302,7 @@ function buildSteps(G, path, edges, foot = false) {
     const t = turnText(ang);
     if (t.mod === 'straight' && !curName) continue;
     steps.push({
-      type: 'turn', mod: t.mod, angle: t.angle, name: curName, along: cum[i], i,
+      type: 'turn', mod: t.mod, angle: t.angle, name: curName, along: cum[i], i, lanes: lanesAt(i, t),
       text: t.mod === 'straight' ? `Continúa por ${curName}` : `${t.txt}${curName ? ` por ${curName}` : ''}`,
     });
   }
