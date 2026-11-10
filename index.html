@@ -77,27 +77,36 @@
   <div id="map"></div>
 
   <!-- Barra superior -->
-  <header id="topbar" class="topbar">
+  <!-- Esquinas: menú (ajustes) y mapas sin conexión -->
+  <div class="corner tl">
+    <button id="btn-settings" class="fab sm" aria-label="Menú y ajustes" title="Menú y ajustes">
+      <svg class="ico" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+  </div>
+  <div class="corner tr">
+    <button id="btn-menu" class="fab sm" aria-label="Mapas sin conexión" title="Mapas sin conexión">
+      <svg class="ico" viewBox="0 0 24 24"><path d="M12 3v12m0 0-4-4m4 4 4-4"/><path d="M4 17v3h16v-3"/></svg>
+    </button>
+  </div>
+  <div class="pills top-pills">
+    <button id="rain" class="pill rain" hidden></button>
+    <span id="net" class="pill warn" hidden></span>
+  </div>
+
+  <!-- Panel de inicio: buscador, atajos y recientes -->
+  <header id="topbar" class="topbar home">
+    <div class="grab" aria-hidden="true"></div>
     <div class="search">
       <svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
       <input id="q" type="search" placeholder="¿A dónde vas?" autocomplete="off" enterkeyhint="search">
       <button id="btn-favs" class="icon-btn" aria-label="Favoritos" title="Favoritos">
         <svg class="ico" viewBox="0 0 24 24"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"/></svg>
       </button>
-      <button id="btn-settings" class="icon-btn" aria-label="Ajustes" title="Ajustes">
-        <svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
-      </button>
-      <button id="btn-menu" class="icon-btn" aria-label="Mapas sin conexión" title="Mapas sin conexión">
-        <svg class="ico" viewBox="0 0 24 24"><path d="M12 3v12m0 0-4-4m4 4 4-4"/><path d="M4 17v3h16v-3"/></svg>
-      </button>
     </div>
+    <ul id="results" class="results" hidden></ul>
     <div id="quick" class="quick" hidden></div>
     <div id="dl-card" class="dl-card" hidden></div>
-    <ul id="results" class="results" hidden></ul>
-    <div class="pills">
-      <button id="rain" class="pill rain" hidden></button>
-      <span id="net" class="pill warn" hidden></span>
-    </div>
+    <div id="recents" class="recents" hidden></div>
   </header>
 
   <!-- Banner de maniobra -->
@@ -116,11 +125,8 @@
 
   <div class="fabs">
     <button id="btn-sos" class="fab sos" title="Emergencias">SOS</button>
-    <button id="btn-compass" class="fab compass" title="Brújula" aria-label="Brújula: norte arriba u orientar el mapa hacia donde miras">
-      <svg class="needle" viewBox="0 0 24 24" aria-hidden="true"><path class="n" d="M12 2.5 15.2 12H8.8z"/><path class="s" d="M12 21.5 8.8 12h6.4z"/><circle cx="12" cy="12" r="1.6"/></svg>
-    </button>
-    <button id="btn-locate" class="fab" title="Mi ubicación" aria-label="Mi ubicación">
-      <svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+        <button id="btn-locate" class="fab locate" title="Mi ubicación y brújula" aria-label="Centrar en mi ubicación">
+      <svg class="arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 18.5 20 12 16.2 5.5 20z"/></svg>
     </button>
   </div>
   <button id="btn-recenter" class="recenter" hidden>Recentrar</button>
@@ -245,45 +251,50 @@
     </div>
     <!-- Ajustes -->
     <div id="sheet-settings" hidden>
-      <div class="row between">
+      <div class="set-top">
         <h2>Ajustes</h2>
         <button id="btn-close-settings" class="icon-btn" aria-label="Cerrar"><svg class="ico" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      </div>
+      <div class="set-hero">
+        <img src="icons/icon-192.png" alt="" width="52" height="52">
+        <div class="st"><b>Rumbo</b><small id="set-hero-sub">Navegador que funciona sin conexión</small></div>
       </div>
 
       <h3>Navegación</h3>
       <div class="set-list">
-        <label class="set"><span>Indicaciones por voz</span><input type="checkbox" class="switch" data-set="voice"></label>
-        <label class="set"><span>Evitar peajes por defecto</span><input type="checkbox" class="switch" data-set="avoidTolls"></label>
-      </div>
-
-      <h3>Tu vehículo</h3>
-      <div class="set-list">
-        <div class="set col"><span>Etiqueta medioambiental de la DGT</span>
-          <div class="seg seg6" data-seg="sticker">
-            <button data-v="0" class="lbl l0">0</button><button data-v="ECO" class="lbl leco">ECO</button><button data-v="C" class="lbl lc">C</button><button data-v="B" class="lbl lb">B</button><button data-v="A">Sin</button><button data-v="">No sé</button>
-          </div>
-          <small class="muted">Para avisarte (y evitar si quieres) las Zonas de Bajas Emisiones donde no puedes entrar.</small>
-        </div>
-        <label class="set"><span>Evitar las ZBE donde no puedo entrar</span><input type="checkbox" class="switch" data-set="avoidZbe"></label>
-        <div class="set col"><span>Combustible</span>
-          <div class="seg seg5" data-seg="fuel">
-            <button data-v="g95">95</button><button data-v="g98">98</button><button data-v="diesel">Diésel</button><button data-v="glp">GLP</button><button data-v="">Eléctrico</button>
-          </div>
-          <small class="muted">Para enseñarte la gasolinera más barata en tu ruta (precios oficiales del Ministerio).</small>
-        </div>
+        <label class="set"><span class="si" style="--i:#2563eb"><svg viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></span><span class="st"><b>Indicaciones por voz</b></span><input type="checkbox" class="switch" data-set="voice"></label>
+        <label class="set"><span class="si" style="--i:#d97706"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M15 8.5a4 4 0 1 0 0 7M7.5 11h6M7.5 13.5h6"/></svg></span><span class="st"><b>Evitar peajes</b><small>Siempre que haya una alternativa razonable</small></span><input type="checkbox" class="switch" data-set="avoidTolls"></label>
+        <label class="set"><span class="si" style="--i:#ea580c"><svg viewBox="0 0 24 24"><path d="M12 21a9 9 0 1 1 9-9"/><path d="M12 7v5l3 2"/><path d="M17 17h4v4"/></svg></span><span class="st"><b>Tráfico por hora del día</b><small>Horas punta y fines de semana en la ruta y la llegada</small></span><input type="checkbox" class="switch" data-set="traffic"></label>
       </div>
 
       <h3>Avisos</h3>
       <div class="set-list">
-        <label class="set"><span>Radares fijos</span><input type="checkbox" class="switch" data-set="alertFixed"></label>
-        <label class="set"><span>Radares de tramo</span><input type="checkbox" class="switch" data-set="alertSection"></label>
-        <label class="set"><span>Semáforos con cámara</span><input type="checkbox" class="switch" data-set="alertRedLight"></label>
-        <label class="set"><span>Tráfico por hora del día <small class="muted">(horas punta y fines de semana en la ruta y la llegada)</small></span><input type="checkbox" class="switch" data-set="traffic"></label>
-        <label class="set"><span>Avisos sin ruta <small class="muted">(radares, tramos y semáforos aunque no elijas destino)</small></span><input type="checkbox" class="switch" data-set="freeDrive"></label>
-        <label class="set"><span>Avisar si supero el límite de velocidad</span><input type="checkbox" class="switch" data-set="speedWarning"></label>
-        <div class="set col"><span>Margen antes de avisar</span>
+        <label class="set"><span class="si" style="--i:#dc2626"><svg viewBox="0 0 24 24"><rect x="3" y="7" width="13" height="10" rx="2"/><path d="m16 11 5-3v8l-5-3"/></svg></span><span class="st"><b>Radares fijos</b></span><input type="checkbox" class="switch" data-set="alertFixed"></label>
+        <label class="set"><span class="si" style="--i:#7c3aed"><svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 2h6"/></svg></span><span class="st"><b>Radares de tramo</b><small>Con tu velocidad media en directo</small></span><input type="checkbox" class="switch" data-set="alertSection"></label>
+        <label class="set"><span class="si" style="--i:#ea580c"><svg viewBox="0 0 24 24"><rect x="8" y="2" width="8" height="20" rx="3"/><circle cx="12" cy="7" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="17" r="1.6"/></svg></span><span class="st"><b>Semáforos con cámara</b></span><input type="checkbox" class="switch" data-set="alertRedLight"></label>
+        <label class="set"><span class="si" style="--i:#0d9488"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/><path d="M12 3v6.5M4.5 16l5.3-2.8M19.5 16l-5.3-2.8"/></svg></span><span class="st"><b>Avisos sin ruta</b><small>También conduciendo sin destino</small></span><input type="checkbox" class="switch" data-set="freeDrive"></label>
+        <label class="set"><span class="si" style="--i:#dc2626"><svg viewBox="0 0 24 24"><path d="M4 18a8.5 8.5 0 1 1 16 0"/><path d="m12 14 4-5"/></svg></span><span class="st"><b>Aviso de exceso de velocidad</b><small>Si superas el límite de la vía</small></span><input type="checkbox" class="switch" data-set="speedWarning"></label>
+        <div class="set col">
+          <div class="set-head"><span class="si" style="--i:#64748b"><svg viewBox="0 0 24 24"><path d="M4 18a8.5 8.5 0 1 1 16 0"/><path d="m12 14 4-5"/></svg></span><span class="st"><b>Margen antes de avisar</b><small>km/h por encima del límite</small></span></div>
           <div class="seg seg4" data-seg="speedMargin">
             <button data-v="0">0</button><button data-v="5">+5</button><button data-v="10">+10</button><button data-v="20">+20</button>
+          </div>
+        </div>
+      </div>
+
+      <h3>Tu vehículo</h3>
+      <div class="set-list">
+        <div class="set col">
+          <div class="set-head"><span class="si" style="--i:#16a34a"><svg viewBox="0 0 24 24"><path d="M5 19c0-8 5-13 14-14-1 9-6 14-14 14z"/><path d="M5 19l7-7"/></svg></span><span class="st"><b>Etiqueta medioambiental</b><small>Para las Zonas de Bajas Emisiones donde no puedes entrar</small></span></div>
+          <div class="seg seg6" data-seg="sticker">
+            <button data-v="0" class="lbl l0">0</button><button data-v="ECO" class="lbl leco">ECO</button><button data-v="C" class="lbl lc">C</button><button data-v="B" class="lbl lb">B</button><button data-v="A">Sin</button><button data-v="">No sé</button>
+          </div>
+        </div>
+        <label class="set"><span class="si" style="--i:#dc2626"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M7 12h10"/></svg></span><span class="st"><b>Evitar las ZBE prohibidas</b><small>La ruta nunca te mete dentro</small></span><input type="checkbox" class="switch" data-set="avoidZbe"></label>
+        <div class="set col">
+          <div class="set-head"><span class="si" style="--i:#0d9488"><svg viewBox="0 0 24 24"><path d="M4 21V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v16M3 21h13M15 9h2a2 2 0 0 1 2 2v5a1.5 1.5 0 0 0 3 0V8l-3-3"/><path d="M7 7h5"/></svg></span><span class="st"><b>Combustible</b><small>Para la gasolinera más barata de tu ruta</small></span></div>
+          <div class="seg seg5" data-seg="fuel">
+            <button data-v="g95">95</button><button data-v="g98">98</button><button data-v="diesel">Diésel</button><button data-v="glp">GLP</button><button data-v="">Eléctrico</button>
           </div>
         </div>
       </div>
@@ -291,60 +302,63 @@
       <h3>Ruta segura ante inundaciones</h3>
       <div class="set-list">
         <div class="set col">
+          <div class="set-head"><span class="si" style="--i:#0284c7"><svg viewBox="0 0 24 24"><path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z"/></svg></span><span class="st"><b>Evitar zonas inundables</b><small>Automático: se activa sola con lluvia fuerte o aviso de AEMET</small></span></div>
           <div class="seg" data-seg="floodMode">
             <button data-v="auto">Automático</button><button data-v="on">Siempre</button><button data-v="off">Nunca</button>
           </div>
-          <small class="muted">Automático: se activa sola cuando hay lluvia fuerte en tu zona.</small>
         </div>
       </div>
 
       <h3>Emergencia</h3>
       <div class="set-list">
-        <label class="set"><span>Número de emergencias</span><input id="set-emergency" class="set-input" inputmode="tel" maxlength="6"></label>
-        <button class="set link" data-open="contacts"><span>Contactos de emergencia</span><span id="set-contacts-n" class="muted"></span></button>
+        <label class="set"><span class="si" style="--i:#dc2626"><svg viewBox="0 0 24 24"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/></svg></span><span class="st"><b>Número de emergencias</b></span><input id="set-emergency" class="set-input" inputmode="tel" maxlength="6"></label>
+        <button class="set link" data-open="contacts"><span class="si" style="--i:#16a34a"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/></svg></span><span class="st"><b>Contactos de emergencia</b></span><span id="set-contacts-n" class="muted"></span><span class="chev" aria-hidden="true"></span></button>
       </div>
 
       <h3>Mapas</h3>
       <div class="set-list">
-        <button class="set link" data-open="maps"><span>Mapas sin conexión</span><span id="set-maps-n" class="muted"></span></button>
-        <button class="set link" data-open="favs"><span>Favoritos</span><span id="set-favs-n" class="muted"></span></button>
+        <button class="set link" data-open="maps"><span class="si" style="--i:#2563eb"><svg viewBox="0 0 24 24"><path d="M9 4 3 6.5v13.5L9 17.5l6 2.5 6-2.5V4l-6 2.5z"/><path d="M9 4v13.5M15 6.5V20"/></svg></span><span class="st"><b>Mapas sin conexión</b></span><span id="set-maps-n" class="muted"></span><span class="chev" aria-hidden="true"></span></button>
+        <button class="set link" data-open="favs"><span class="si" style="--i:#d97706"><svg viewBox="0 0 24 24"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"/></svg></span><span class="st"><b>Favoritos</b></span><span id="set-favs-n" class="muted"></span><span class="chev" aria-hidden="true"></span></button>
       </div>
 
       <h3>Apariencia</h3>
       <div class="set-list">
-        <label class="set"><span>Pantalla siempre encendida <small class="muted">(con la app abierta; al navegar se mantiene encendida siempre)</small></span><input type="checkbox" class="switch" data-set="screenAlways"></label>
-        <label class="set"><span>Edificios en 3D <small class="muted">(desactívalo si el mapa va lento)</small></span><input type="checkbox" class="switch" data-set="buildings3d"></label>
         <div class="set col">
-          <span class="small muted">Tu icono al conducir</span>
+          <div class="set-head"><span class="si" style="--i:#2563eb"><svg viewBox="0 0 24 24"><path d="M12 2 20 21 12 17 4 21z"/></svg></span><span class="st"><b>Tu icono al conducir</b></span></div>
           <div id="marker-icons" class="marker-grid" role="radiogroup" aria-label="Icono de tu posición"></div>
           <div id="marker-colors" class="color-row" role="radiogroup" aria-label="Color del icono"></div>
         </div>
         <div class="set col">
-          <span class="small muted">Mapa</span>
+          <div class="set-head"><span class="si" style="--i:#4f46e5"><svg viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg></span><span class="st"><b>Mapa de noche</b></span></div>
           <div class="seg" data-seg="mapNight">
-            <button data-v="auto">De noche, oscuro</button><button data-v="off">Siempre claro</button><button data-v="on">Siempre oscuro</button>
+            <button data-v="auto">Al anochecer</button><button data-v="off">Siempre claro</button><button data-v="on">Siempre oscuro</button>
           </div>
-          <span class="small muted">Interfaz</span>
+        </div>
+        <div class="set col">
+          <div class="set-head"><span class="si" style="--i:#64748b"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></span><span class="st"><b>Tema de la app</b></span></div>
           <div class="seg" data-seg="theme">
             <button data-v="auto">Automático</button><button data-v="light">Claro</button><button data-v="dark">Oscuro</button>
           </div>
         </div>
+        <label class="set"><span class="si" style="--i:#7c3aed"><svg viewBox="0 0 24 24"><path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="M3 7l9 5 9-5M12 12v10"/></svg></span><span class="st"><b>Edificios en 3D</b><small>Desactívalo si el mapa va lento</small></span><input type="checkbox" class="switch" data-set="buildings3d"></label>
+        <label class="set"><span class="si" style="--i:#64748b"><svg viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M11 18h2"/></svg></span><span class="st"><b>Pantalla siempre encendida</b><small>Con la app abierta; al navegar, siempre</small></span><input type="checkbox" class="switch" data-set="screenAlways"></label>
       </div>
 
       <h3>Privacidad y datos</h3>
-      <p class="small muted">Rumbo no tiene cuentas ni servidores: tus favoritos, contactos y mapas solo están en este dispositivo.</p>
       <div class="set-list">
-        <button class="set link danger-text" id="btn-wipe-personal"><span>Borrar favoritos y contactos</span></button>
-        <button class="set link danger-text" id="btn-wipe-all"><span>Borrar todos los datos de la app</span></button>
+        <div class="set"><span class="si" style="--i:#16a34a"><svg viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/></svg></span><span class="st"><b>Sin cuentas ni servidores</b><small>Tus favoritos, contactos y mapas solo están en este dispositivo</small></span></div>
+        <button class="set link danger-text" id="btn-wipe-personal"><span class="si" style="--i:#dc2626"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg></span><span class="st"><b>Borrar favoritos y contactos</b></span></button>
+        <button class="set link danger-text" id="btn-wipe-all"><span class="si" style="--i:#dc2626"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg></span><span class="st"><b>Borrar todos los datos de la app</b></span></button>
       </div>
 
       <h3>Información</h3>
       <div class="set-list">
-        <button class="set link" data-open="credits"><span>Acerca de Rumbo y créditos</span><span class="muted">›</span></button>
-        <button class="set link" id="btn-replay-onboarding"><span>Ver la bienvenida otra vez</span><span class="muted">›</span></button>
-        <button class="set link" id="btn-diag"><span>Diagnóstico de arranque</span><span class="muted">›</span></button>
-        <pre id="diag" class="small" hidden style="white-space:pre-wrap;user-select:text;-webkit-user-select:text;font:11px ui-monospace,monospace;max-height:40vh;overflow:auto"></pre>
+        <button class="set link" data-open="credits"><span class="si" style="--i:#2563eb"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg></span><span class="st"><b>Acerca de Rumbo y créditos</b></span><span class="chev" aria-hidden="true"></span></button>
+        <button class="set link" id="btn-replay-onboarding"><span class="si" style="--i:#0d9488"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m10 8.5 5.5 3.5-5.5 3.5z"/></svg></span><span class="st"><b>Ver la bienvenida otra vez</b></span><span class="chev" aria-hidden="true"></span></button>
+        <button class="set link" id="btn-diag"><span class="si" style="--i:#64748b"><svg viewBox="0 0 24 24"><path d="M3 12h4l2.5-6 4 12 2.5-6H21"/></svg></span><span class="st"><b>Diagnóstico de arranque</b></span><span class="chev" aria-hidden="true"></span></button>
+        <pre id="diag" class="small" hidden style="white-space:pre-wrap;user-select:text;-webkit-user-select:text;font:11px ui-monospace,monospace;max-height:40vh;overflow:auto;padding:0 14px 12px;margin:0"></pre>
       </div>
+      <p class="set-foot small muted"><a href="https://github.com/polmartinezmena-byte/rumbo" target="_blank" rel="noopener">Código abierto en GitHub</a> · <a href="privacidad.html" target="_blank" rel="noopener">Privacidad</a> · Licencia MIT</p>
     </div>
 
     <!-- Créditos y licencias -->

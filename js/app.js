@@ -471,6 +471,7 @@ function onPos(p) {
   if (nav && !simTimer && c.accuracy > 80 && Date.now() - lastFix.t < 10000) return;
   lastFix = { t: Date.now(), along: navAlong, speed: gps.speed > 0 ? gps.speed : lastFix.speed * 0.9 };
   if (!simTimer) placeMe(gps.lon, gps.lat, gps.heading);
+  if (tracking && !nav && !headingUp && !centerOnFix && mapReady) map.easeTo({ center: [gps.lon, gps.lat], duration: 600 });
   if (centerOnFix) {
     centerOnFix = false;
     map.flyTo({ center: [gps.lon, gps.lat], zoom: Math.max(map.getZoom(), 15) });
@@ -487,10 +488,7 @@ function placeMe(lon, lat, heading) {
   if (heading != null && !Number.isNaN(heading)) meMarker.setRotation(heading);
 }
 
-$('#btn-locate').onclick = () => {
-  if (gps) map.flyTo({ center: [gps.lon, gps.lat], zoom: Math.max(map.getZoom(), 16) });
-  else { centerOnFix = true; startGps(); toast('Buscando tu posición…'); }
-};
+// El botón de ubicación (también brújula) está más abajo, junto al mapa.
 // Situarte al abrir: si ya diste permiso, directamente; si no, se pide una vez.
 centerOnFix = true;
 navigator.permissions?.query({ name: 'geolocation' })
@@ -554,6 +552,7 @@ async function runSearch() {
 // ================================================================== ORIGEN / DESTINO
 function setDest(p) {
   dest = p;
+  addRecent(p);
   destMarker.setLngLat([p.lon, p.lat]).addTo(map);
   computeRoute();
 }
@@ -1352,19 +1351,26 @@ function stopNav() {
 
 map.on('dragstart', () => { if (nav) { follow = false; $('#btn-recenter').hidden = false; } });
 
-// ------------------------------------------------------------------ brújula
-// La aguja siempre señala el norte del mapa. Al tocarla: si el mapa está girado, vuelve el norte
-// arriba; si ya lo está, el mapa gira con el móvil (hacia donde miras); otro toque, norte otra vez.
-let headingUp = false, headTarget = null, headTimer = null;
-const compass = $('#btn-compass');
-const syncCompass = () => {
-  compass.querySelector('svg').style.transform = `rotate(${-map.getBearing()}deg)`;
-  compass.classList.toggle('active', headingUp);
-  compass.classList.toggle('rotated', Math.abs(map.getBearing()) > 1 || map.getPitch() > 1);
+// ------------------------------------------------------------------ ubicación y brújula (un solo botón)
+// Como en los navegadores profesionales:
+//   1.º toque → te centra y el mapa te sigue · 2.º → el mapa gira hacia donde miras · 3.º → norte arriba.
+// Si giras el mapa con los dedos, el botón se convierte en brújula: tocarlo devuelve el norte.
+let headingUp = false, headTarget = null, headTimer = null, tracking = false;
+const locBtn = $('#btn-locate');
+const syncLocate = () => {
+  const rotated = Math.abs(map.getBearing()) > 1 || map.getPitch() > 1;
+  // Una sola flecha: siempre señala el norte del mapa (hace de brújula si el mapa está girado).
+  locBtn.querySelector('.arrow').style.transform = `rotate(${-map.getBearing()}deg)`;
+  locBtn.classList.toggle('heading', headingUp);
+  locBtn.classList.toggle('rotated', rotated && !headingUp);
+  locBtn.classList.toggle('tracking', tracking && !headingUp);
+  locBtn.setAttribute('aria-label', headingUp ? 'Volver al norte' : rotated ? 'Poner el norte arriba' : tracking ? 'Orientar el mapa hacia donde miras' : 'Centrar en mi ubicación');
 };
-map.on('rotate', syncCompass);
-map.on('pitch', syncCompass);
-map.on('load', syncCompass);
+map.on('rotate', syncLocate);
+map.on('pitch', syncLocate);
+map.on('load', syncLocate);
+// Si mueves el mapa con el dedo, deja de seguirte.
+map.on('dragstart', (e) => { if (e.originalEvent && tracking && !nav) { tracking = false; syncLocate(); } });
 function onOrient(e) {
   // iPhone: webkitCompassHeading (0 = norte). Android: alpha absoluto (va al revés).
   const h = e.webkitCompassHeading ?? (e.absolute && e.alpha != null ? (360 - e.alpha) % 360 : null);
@@ -1374,17 +1380,16 @@ function onOrient(e) {
 }
 function startHeadingUp() {
   headingUp = true;
+  tracking = true;
   addEventListener('deviceorientationabsolute', onOrient);
   addEventListener('deviceorientation', onOrient);
   // Se aplica unas 8 veces por segundo y solo si cambia de verdad: suave y sin gastar batería.
   headTimer = setInterval(() => {
     if (headTarget == null || nav) return;
     const diff = ((headTarget - map.getBearing() + 540) % 360) - 180;
-    if (Math.abs(diff) > 2) map.easeTo({ bearing: headTarget, duration: 150, easing: (t) => t });
+    if (Math.abs(diff) > 2) map.easeTo({ bearing: headTarget, center: gps ? [gps.lon, gps.lat] : undefined, duration: 150, easing: (t) => t });
   }, 125);
-  if (gps) map.easeTo({ center: [gps.lon, gps.lat], duration: 400 });
-  syncCompass();
-  toast('Mapa orientado hacia donde miras. Toca la brújula para volver al norte.');
+  syncLocate();
 }
 function stopHeadingUp() {
   headingUp = false;
@@ -1392,15 +1397,24 @@ function stopHeadingUp() {
   removeEventListener('deviceorientation', onOrient);
   clearInterval(headTimer);
   headTarget = null;
-  syncCompass();
+  syncLocate();
 }
-compass.onclick = async () => {
-  if (nav) { // en marcha el mapa ya gira con la ruta: la brújula enseña el norte un momento
+locBtn.onclick = async () => {
+  if (nav) { // navegando: recentra el guiado o enseña el norte un momento
+    if (!follow) { follow = true; $('#btn-recenter').hidden = true; return; }
     follow = false; $('#btn-recenter').hidden = false;
     return map.easeTo({ bearing: 0, pitch: 0, duration: 500 });
   }
+  if (!gps) { centerOnFix = true; tracking = true; startGps(); syncLocate(); return toast('Buscando tu posición…'); }
   if (headingUp) { stopHeadingUp(); return map.easeTo({ bearing: 0, pitch: 0, duration: 500 }); }
-  if (Math.abs(map.getBearing()) > 1 || map.getPitch() > 1) return map.easeTo({ bearing: 0, pitch: 0, duration: 500 });
+  if (Math.abs(map.getBearing()) > 1 || map.getPitch() > 1) {
+    tracking = true; syncLocate();
+    return map.easeTo({ bearing: 0, pitch: 0, center: [gps.lon, gps.lat], duration: 500 });
+  }
+  if (!tracking) {
+    tracking = true; syncLocate();
+    return map.flyTo({ center: [gps.lon, gps.lat], zoom: Math.max(map.getZoom(), 16) });
+  }
   // iPhone pide permiso para usar la brújula (solo se puede pedir al tocar un botón).
   if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
     const ok = await DeviceOrientationEvent.requestPermission().catch(() => 'denied');
@@ -1408,6 +1422,7 @@ compass.onclick = async () => {
   }
   if (!('DeviceOrientationEvent' in globalThis)) return toast('Este dispositivo no tiene brújula');
   startHeadingUp();
+  toast('El mapa gira hacia donde miras. Vuelve a tocar para poner el norte arriba.');
 };
 // Si giras el mapa con los dedos, la brújula deja de mandar.
 map.on('rotatestart', (e) => { if (e.originalEvent && headingUp) stopHeadingUp(); });
@@ -1557,13 +1572,14 @@ const SVG = {
   fuel: '<svg viewBox="0 0 24 24" class="ico"><path d="M4 21V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v16M3 21h13M15 9h2a2 2 0 0 1 2 2v5a1.5 1.5 0 0 0 3 0V8l-3-3"/><path d="M7 7h5"/></svg>',
   rain: '<svg viewBox="0 0 24 24" class="ico"><path d="M7 15a4 4 0 0 1-.6-8 6 6 0 0 1 11.4 1.5A3.5 3.5 0 0 1 17.5 15"/><path d="M9 18l-1 2M13 18l-1 2M17 18l-1 2"/></svg>',
   dl: '<svg viewBox="0 0 24 24" class="ico"><path d="M12 3v12m0 0-4-4m4 4 4-4"/><path d="M4 17v3h16v-3"/></svg>',
+  plus: '<svg viewBox="0 0 24 24" class="ico"><path d="M12 5v14M5 12h14"/></svg>',
+  clock: '<svg viewBox="0 0 24 24" class="ico"><path d="M3.5 12a8.5 8.5 0 1 0 2.5-6"/><path d="M3 4v4h4"/><path d="M12 8v4l3 2"/></svg>',
   x: '<svg viewBox="0 0 24 24" class="ico"><path d="M6 6l12 12M18 6 6 18"/></svg>',
 };
 // Los botones flotantes quedan justo encima de lo que hay abajo (buscador + atajos + tarjeta).
 function updateBottomH() {
-  const vis = (el) => el && !el.hidden && getComputedStyle(el).display !== 'none';
-  let h = $('.search').offsetHeight;
-  for (const el of [$('#quick'), $('#dl-card')]) if (vis(el)) h += el.offsetHeight + 8;
+  const tb = $('#topbar');
+  const h = tb && getComputedStyle(tb).display !== 'none' ? tb.offsetHeight : 0;
   document.body.style.setProperty('--bottom-h', `${h}px`);
 }
 addEventListener('resize', updateBottomH);
@@ -1572,12 +1588,19 @@ function renderQuick() {
   if (!box) return;
   requestAnimationFrame(updateBottomH);
   const chips = [];
-  if (car) chips.push({ icon: SVG.car, label: 'Mi coche', go: () => { renderCar(); $('#car-walk')?.click(); } });
-  for (const f of favs.slice(0, 4)) {
-    const n = f.name.toLowerCase();
-    const icon = /casa|home|hogar/.test(n) ? SVG.home : /trabajo|oficina|feina|work/.test(n) ? SVG.work : SVG.star;
-    chips.push({ icon, label: f.name, go: () => setDest({ lat: f.lat, lon: f.lon, label: f.name }) });
+  const isHome = (f) => /^(casa|home|hogar|mi casa)$/i.test(f.name.trim());
+  const isWork = (f) => /^(trabajo|oficina|feina|work)$/i.test(f.name.trim());
+  const fixed = [['Casa', SVG.home, isHome], ['Trabajo', SVG.work, isWork]];
+  for (const [label, icon, test] of fixed) {
+    const f = favs.find(test);
+    chips.push(f
+      ? { icon, label, go: () => setDest({ lat: f.lat, lon: f.lon, label }) }
+      : { icon, label, ghost: true, go: () => saveHere(label) });
   }
+  for (const f of favs.filter((x) => !isHome(x) && !isWork(x)).slice(0, 4)) {
+    chips.push({ icon: SVG.star, label: f.name, go: () => setDest({ lat: f.lat, lon: f.lon, label: f.name }) });
+  }
+  if (car) chips.push({ icon: SVG.car, label: 'Mi coche', go: () => { renderCar(); $('#car-walk')?.click(); } });
   chips.push({ icon: SVG.fuel, label: 'Gasolinera', go: async () => {
     const p = gps || { lat: map.getCenter().lat, lon: map.getCenter().lng };
     const [it] = await call('nearby', { near: [p.lat, p.lon], cat: 'fuel' }).catch(() => []);
@@ -1585,15 +1608,55 @@ function renderQuick() {
     setDest({ lat: it.lat, lon: it.lon, label: it.name || 'Gasolinera' });
   } });
   if ($('#rain').hidden) chips.push({ icon: SVG.rain, label: 'Lluvia', go: () => $('#rain').onclick() });
+  chips.push({ icon: SVG.plus, label: 'Nuevo', ghost: true, go: () => saveHere('') });
   box.innerHTML = '';
   for (const c of chips) {
     const b = document.createElement('button');
-    b.className = 'qchip';
+    b.className = 'qchip' + (c.ghost ? ' ghost' : '');
     b.innerHTML = `${c.icon}<span>${esc(c.label)}</span>`;
     b.onclick = c.go;
     box.appendChild(b);
   }
   box.hidden = !chips.length;
+}
+
+// «Casa», «Trabajo» o «+ Nuevo»: guarda dónde estás (o el centro del mapa) con ese nombre.
+function saveHere(name) {
+  const p = gps || { lat: map.getCenter().lat, lon: map.getCenter().lng };
+  if (name && !confirm(`¿Guardar ${gps ? 'tu ubicación actual' : 'el centro del mapa'} como «${name}»?\n\nTambién puedes buscar la dirección y guardarla con la ☆ de la ruta.`)) return;
+  if (name) {
+    favs.push({ id: Date.now().toString(36), name, lat: p.lat, lon: p.lon });
+    store.set('favs', favs);
+    drawFavs();
+    return toast(`«${name}» guardado`);
+  }
+  addFav(p, '');
+}
+
+// Recientes: los últimos destinos (en este dispositivo).
+let recents = store.get('recents', []);
+function addRecent(p) {
+  if (!p?.label || p.label === 'Tu coche') return;
+  const k = (x) => `${x.lat.toFixed(4)},${x.lon.toFixed(4)}`;
+  recents = [{ label: p.label, lat: p.lat, lon: p.lon, at: Date.now() }, ...recents.filter((x) => k(x) !== k(p))].slice(0, 8);
+  store.set('recents', recents);
+  renderRecents();
+}
+function renderRecents() {
+  const box = $('#recents');
+  if (!box) return;
+  const list = recents.slice(0, 3);
+  box.hidden = !list.length;
+  box.innerHTML = list.length ? '<h4>Recientes</h4>' : '';
+  for (const r of list) {
+    const b = document.createElement('button');
+    b.className = 'recent';
+    const d = gps ? fmtDist(haversine(gps.lat, gps.lon, r.lat, r.lon)) : '';
+    b.innerHTML = `<span class="r-ico">${SVG.clock}</span><span class="r-meta"><b>${esc(r.label)}</b>${d ? `<small>A ${d}</small>` : ''}</span>`;
+    b.onclick = () => setDest({ lat: r.lat, lon: r.lon, label: r.label });
+    box.appendChild(b);
+  }
+  requestAnimationFrame(updateBottomH);
 }
 
 // Tarjeta para descargar tu comunidad (en lugar de un aviso que desaparece).
@@ -1696,20 +1759,22 @@ $('#btn-fav-dest').onclick = () => {
 };
 
 // ================================================================== AJUSTES
-const APP_VERSION = '0.4.0';
+const APP_VERSION = '0.5.0';
 
 function renderSettings() {
   $$('#sheet-settings input.switch').forEach((i) => (i.checked = !!settings[i.dataset.set]));
+  const nMaps = Object.keys(catalog).length;
+  $('#set-hero-sub').textContent = `Versión ${APP_VERSION} · ${nMaps ? `${nMaps} mapa${nMaps > 1 ? 's' : ''} sin conexión` : 'sin mapas descargados'}`;
   $$('#sheet-settings .seg[data-seg]').forEach((seg) => {
     for (const b of seg.querySelectorAll('button')) {
       b.setAttribute('aria-checked', String(String(settings[seg.dataset.seg]) === b.dataset.v));
     }
   });
   $('#set-emergency').value = settings.emergencyNumber;
-  $('#set-contacts-n').textContent = contacts.length ? `${contacts.length} ›` : 'Ninguno ›';
-  $('#set-favs-n').textContent = `${favs.length} ›`;
+  $('#set-contacts-n').textContent = contacts.length ? `${contacts.length}` : 'Ninguno';
+  $('#set-favs-n').textContent = `${favs.length}`;
   const maps = Object.values(catalog).map((st) => st.name || (st.region ? st.region : 'Zona a medida'));
-  $('#set-maps-n').textContent = maps.length ? `${maps.length} descargado${maps.length > 1 ? 's' : ''} ›` : 'Ninguno ›';
+  $('#set-maps-n').textContent = maps.length ? `${maps.length} descargado${maps.length > 1 ? 's' : ''}` : 'Ninguno';
 }
 
 // Selector del icono de tu posición (con vista previa en el color elegido).
@@ -1903,6 +1968,7 @@ call('init').then(async (c) => {
   updateNet();
   renderDlCard();
   renderQuick();
+  renderRecents();
   if (resume?.dest) {
     if (resume.origin) { origin = resume.origin; originMarker.setLngLat([origin.lon, origin.lat]).addTo(map); }
     dest = resume.dest;
