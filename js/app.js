@@ -1,6 +1,6 @@
 import { fmtDist, fmtTime, fmtClock, haversine } from './geo.js';
 import { STYLE_URL, STYLE_DARK, MAX_ZOOM, AVG_TILE_KB, prefetchArea, tileList, removeTiles } from './offline-tiles.js';
-import { Navigator, pointAt, speak, setMuted, isMuted } from './nav.js';
+import { Navigator, pointAt, speak, setMuted, isMuted, playSound } from './nav.js';
 import { fetchWeather, cachedWeather, LEVELS } from './weather.js';
 import { settings, setSetting, onSettingChange, applyTheme } from './settings.js';
 import { DEV, NATIVE, PACKS } from './config.js';
@@ -10,6 +10,7 @@ import { FreeDrive } from './free-drive.js';
 import { LANE_ANGLE } from './lanes.js';
 import { brandStyle } from './map-brand.js';
 import { autoIconize, drawIcon } from './icons.js';
+import { ART, emptyState } from './illustrations.js';
 import { markerSvg, MARKER_ICONS, MARKER_COLORS } from './markers.js';
 import { offlineStyle, registerOfflineProtocol } from './map-offline.js';
 
@@ -61,6 +62,10 @@ let toastTimer;
 function toast(msg, ms = 3500) {
   const t = $('#toast');
   t.textContent = msg;
+  const ok = /guardad|lista para|listo|descargad|copiado|añadid/i.test(msg);
+  t.classList.toggle('ok', ok);
+  t.classList.remove('show');
+  void t.offsetWidth; // reinicia la animación si llega otro aviso seguido
   t.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove('show'), ms);
@@ -311,6 +316,24 @@ const destMarker = new maplibregl.Marker({ color: '#dc2626' });
 const meEl = document.createElement('div');
 meEl.className = 'me';
 const meMarker = new maplibregl.Marker({ element: meEl, rotationAlignment: 'map', pitchAlignment: 'map' });
+// Tu color (el del icono) tiñe toda la app: botones, resaltados, tu posición y la ruta.
+function shade(hex, k) { // k < 0 oscurece, k > 0 aclara
+  const n = parseInt(hex.slice(1), 16), c = [n >> 16, (n >> 8) & 255, n & 255].map((v) => Math.round(k < 0 ? v * (1 + k) : v + (255 - v) * k));
+  return '#' + c.map((v) => v.toString(16).padStart(2, '0')).join('');
+}
+function applyAccent() {
+  const hex = MARKER_COLORS[settings.markerColor] || MARKER_COLORS.azul;
+  const n = parseInt(hex.slice(1), 16), rgb = `${n >> 16}, ${(n >> 8) & 255}, ${n & 255}`;
+  const s = document.documentElement.style;
+  s.setProperty('--primary', hex);
+  s.setProperty('--primary-soft', `rgba(${rgb}, 0.12)`);
+  s.setProperty('--turn', shade(hex, -0.12));
+  s.setProperty('--turn-2', hex);
+  s.setProperty('--accent-rgb', rgb);
+  ROUTE_C.base = shade(hex, 0.18);
+  ROUTE_C.casing = shade(hex, -0.3);
+  if (route && mapReady) paintRoute(1);
+}
 // Al conducir (guiado o sin ruta) tu posición es el icono que elijas; parado, el punto azul.
 function setDriveMarker(on) {
   if (on) { meEl.className = 'me-nav'; meEl.innerHTML = markerSvg(settings.markerIcon, settings.markerColor); }
@@ -586,8 +609,8 @@ async function runSearch() {
   if (seq !== searchSeq) return; // ya se ha escrito otra cosa
   const res = [...favHits, ...found];
   ul.innerHTML = '';
-  if (!canSearch && !favHits.length) ul.innerHTML = '<li class="empty">Sin conexión: descarga tu comunidad o una zona (botón ⬇) para buscar sin red.</li>';
-  else if (!res.length) ul.innerHTML = `<li class="empty">${navigator.onLine ? 'Sin resultados.' : 'Sin resultados en tus mapas descargados.'}</li>`;
+  if (!canSearch && !favHits.length) ul.innerHTML = `<li class="empty">${emptyState('offline', 'Sin conexión', 'Descarga tu comunidad o una zona para buscar sin red.')}</li>`;
+  else if (!res.length) ul.innerHTML = `<li class="empty">${emptyState('search', 'No he encontrado «' + esc(q) + '»', navigator.onLine ? 'Prueba con otra forma de escribirlo o añade la ciudad.' : 'Sin conexión solo se busca en tus mapas descargados.')}</li>`;
   res.forEach((r, i) => {
     const li = document.createElement('li');
     li.dataset.i = i;
@@ -1233,7 +1256,9 @@ function showRouteSheet() {
   const note = floodNote(route);
   $('#r-flood').hidden = !note;
   if (note) { $('#r-flood').className = 'flood-note ' + note.cls; $('#r-flood').innerHTML = note.html; }
+  const wasOn = $('#btn-fav-dest').classList.contains('on');
   $('#btn-fav-dest').classList.toggle('on', favs.some((f) => near(f, dest)));
+  if (!wasOn && $('#btn-fav-dest').classList.contains('on')) { $('#btn-fav-dest').classList.remove('pop'); void $('#btn-fav-dest').offsetWidth; $('#btn-fav-dest').classList.add('pop'); }
   $('#btn-fav-dest svg').classList.toggle('fill', favs.some((f) => near(f, dest)));
 
   // Radares en la ruta y elección con / sin peaje.
@@ -1335,6 +1360,7 @@ function startNav(simulate) {
         saveCar();
         // Tarjeta de llegada en lugar de un aviso que desaparece.
         const trip = { to: dest?.label || 'tu destino', secs: (Date.now() - navStartT) / 1000, dist: route?.distance || 0, dest };
+        playSound('arrive');
         setTimeout(() => { stopNav(); showArrive(trip); }, 1500);
         return;
       }
@@ -1354,6 +1380,7 @@ function startNav(simulate) {
       if (along >= route.distance) { clearInterval(simTimer); simTimer = null; }
     }, TICK);
   } else nav.update(gps);
+  previewRoute(() => { follow = true; });
 }
 
 function renderNav(s) {
@@ -1362,6 +1389,12 @@ function renderNav(s) {
   $('#b-icon').innerHTML = maneuverSvg(s.step);
   $('#b-dist').textContent = s.step.type === 'arrive' && s.dist < 30 ? 'Llegando' : fmtDist(s.dist);
   $('#b-text').textContent = s.step.text;
+  // Siguiente maniobra en pequeño si llega enseguida (a menos de 300 m de esta).
+  const idx = route.steps.indexOf(s.step);
+  const after = idx >= 0 ? route.steps[idx + 1] : null;
+  const soon = after && after.type !== 'arrive' && after.along - s.step.along < 300 && s.dist < 600;
+  $('#b-next').hidden = !soon;
+  if (soon) $('#b-next').innerHTML = `<span>Luego</span><span class="maneuver">${maneuverSvg(after)}</span><span class="ellipsis">${esc(after.text.replace(/ por .*$/, ''))}</span>`;
   // Carriles: se enseñan al acercarte (último kilómetro); los que sirven, resaltados.
   const lanes = s.step.lanes && s.dist < 1200 ? s.step.lanes : null;
   $('#b-lanes').hidden = !lanes;
@@ -1462,13 +1495,52 @@ function renderNavRest(s) {
   $('#n-dist').textContent = fmtDist(s.remaining);
   if (!simTimer && gps) $('#speed-v').textContent = Math.round((gps.speed || 0) * 3.6);
   placeMe(s.snapped[0], s.snapped[1], s.heading);
-  if (follow) {
-    map.easeTo({ center: s.snapped, bearing: s.heading, pitch: 55, zoom: 17, duration: simTimer ? 300 : 900, easing: (t) => t,
-      offset: [0, Math.round(map.getContainer().clientHeight * 0.18)] });
+  // Calle por la que vas (la de la maniobra anterior) en una píldora abajo.
+  const steps = route.steps;
+  let k = 0;
+  while (k + 1 < steps.length && steps[k + 1].along <= s.along + 3) k++;
+  const street = steps[k]?.name || '';
+  $('#street').hidden = !street;
+  if (street) $('#street').textContent = street;
+  if (follow && !previewing) {
+    // Cámara inteligente: más lejos cuanto más rápido vas y más cerca al llegar a un giro; mira por
+    // delante de la flecha (la flecha queda en el tercio inferior).
+    const v = s.speed || 0;
+    let zoom = v < 8 ? 17.2 : v < 17 ? 16.6 : v < 25 ? 15.9 : 15.2;
+    if (s.dist < 220 && s.step.type !== 'arrive') zoom = Math.max(zoom, 17.3);
+    const pitch = v > 22 ? 50 : 58;
+    const z = map.getZoom(), dz = zoom - z;
+    map.easeTo({ center: s.snapped, bearing: s.heading, pitch, zoom: Math.abs(dz) > 0.15 ? z + dz * 0.5 : z, duration: simTimer ? 300 : 900, easing: (t) => t,
+      offset: [0, Math.round(map.getContainer().clientHeight * 0.26)] });
   }
 }
 
+// Vista previa al empezar: la cámara recorre la ruta en unos 2,5 s y se coloca detrás de ti.
+let previewing = false;
+function previewRoute(done) {
+  if (!route || route.distance < 800 || matchMedia('(prefers-reduced-motion: reduce)').matches) return done();
+  previewing = true;
+  const pts = [0.25, 0.55, 0.85].map((f) => pointAt(route, route.distance * f));
+  const b = new maplibregl.LngLatBounds();
+  route.coords.forEach((c) => b.extend(c));
+  const cam = map.cameraForBounds(b, { padding: { top: 140, bottom: 220, left: 40, right: 40 } });
+  let i = 0;
+  const next = () => {
+    if (!nav || !previewing) { previewing = false; return; }
+    if (i >= pts.length) { previewing = false; return done(); }
+    const p = pts[i++];
+    map.easeTo({ center: [p.lon, p.lat], bearing: p.heading, pitch: 45, zoom: Math.min((cam?.zoom ?? 12) + 1.2, 15), duration: 750, easing: (t) => t * (2 - t) });
+    map.once('moveend', next);
+  };
+  map.easeTo({ ...(cam || {}), pitch: 0, bearing: 0, duration: 500 });
+  map.once('moveend', next);
+}
+map.on('touchstart', () => { if (previewing) previewing = false; });
+
 function stopNav() {
+  previewing = false;
+  $('#street').hidden = true;
+  $('#b-next').hidden = true;
   // Si terminas cerca del destino (sin llegar del todo), también se guarda dónde aparcas.
   if (nav && !walking && dest && navPos && haversine(navPos.lat, navPos.lon, dest.lat, dest.lon) < 250) saveCar();
   navPos = null;
@@ -1659,7 +1731,7 @@ async function renderSosList() {
   const p = sosPoint();
   const list = await call('nearby', { near: [p.lat, p.lon], cat: sosCat }).catch(() => []);
   ul.innerHTML = '';
-  if (!list.length) ul.innerHTML = '<li class="muted">No hay servicios de este tipo en tus mapas.</li>';
+  if (!list.length) ul.innerHTML = `<li class="empty">${emptyState('maps', 'Nada cerca', 'No hay servicios de este tipo en tus mapas. Con conexión se buscan en toda España.')}</li>`;
   for (const it of list) {
     const li = document.createElement('li');
     li.innerHTML = `<span class="dir maneuver">${arrowSvg(it.bearing)}</span><div class="meta"><b>${esc(it.name || it.label)}</b><small>${esc(it.name ? it.label : '')}${it.phone ? ' · ' + esc(it.phone) : ''}</small></div><span class="d">${fmtDist(it.dist)}</span>`;
@@ -1866,7 +1938,7 @@ function renderCar() {
 function renderFavs() {
   renderCar();
   const ul = $('#favs');
-  ul.innerHTML = favs.length ? '' : '<li class="muted">Guarda sitios tocando el mapa o con la ☆ de una ruta.</li>';
+  ul.innerHTML = favs.length ? '' : `<li class="empty">${emptyState('star', 'Aún no tienes favoritos', 'Guarda sitios tocando el mapa, con la estrella de una ruta o con «Nuevo» en la pantalla de inicio.')}</li>`;
   for (const f of favs) {
     const li = document.createElement('li');
     const d = gps ? ` · ${fmtDist(haversine(gps.lat, gps.lon, f.lat, f.lon))}` : '';
@@ -1900,7 +1972,7 @@ $('#btn-fav-dest').onclick = () => {
 };
 
 // ================================================================== AJUSTES
-const APP_VERSION = '0.6.0';
+const APP_VERSION = '0.7.0';
 
 function renderSettings() {
   $$('#sheet-settings input.switch').forEach((i) => (i.checked = !!settings[i.dataset.set]));
@@ -1998,7 +2070,7 @@ onSettingChange((key) => {
   if (key === 'theme') applyTheme();
   if (key === 'buildings3d') apply3d();
   if (key === 'mapNight') applyMapNight();
-  if (key === 'markerIcon' || key === 'markerColor') { renderMarkerPicker(); if (nav || free.active) setDriveMarker(true); }
+  if (key === 'markerIcon' || key === 'markerColor') { renderMarkerPicker(); if (nav || free.active) setDriveMarker(true); applyAccent(); }
   if (key === 'screenAlways') settings.screenAlways ? keepAwake('siempre') : allowSleep('siempre');
   if (key === 'emergencyNumber') renderEmergencyNumber();
   if (key === 'floodMode') renderRain();
@@ -2018,6 +2090,8 @@ function showOnboarding() {
     if (n === 2) fillRegions();
   };
   ob.hidden = false;
+  const arts = ['welcome', 'location', 'download', 'sos'];
+  $$('.ob-step').forEach((s, i) => { if (!s.querySelector('.ob-art')) s.insertAdjacentHTML('afterbegin', `<div class="ob-art">${ART[arts[i]]}</div>`); s.querySelector('img')?.remove(); });
   go(0);
   $$('#onboarding [data-next]').forEach((b) => (b.onclick = () => go(step + 1)));
   $('#ob-locate').onclick = () => { centerOnFix = true; startGps(); go(2); };
@@ -2125,6 +2199,8 @@ if (!store.get('onboarded')) loadRegionIndex().then(showOnboarding);
 else loadRegionIndex();
 renderRain();
 refreshWeather();
+
+applyAccent();
 
 // Iconos propios en lugar de emojis en toda la interfaz (notas, banner, avisos, lluvia, coche…).
 autoIconize([$('#sheet'), $('#banner'), $('#toast'), $('#rain'), $('#panel'), $('#topbar'), $('#onboarding')]);

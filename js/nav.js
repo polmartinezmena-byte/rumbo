@@ -35,10 +35,21 @@ export const isMuted = () => muted;
 let actx = null;
 const unlock = () => { try { actx ??= new (globalThis.AudioContext || globalThis.webkitAudioContext)(); actx.resume?.(); } catch { /* sin audio */ } };
 globalThis.addEventListener?.('pointerdown', unlock, { once: false, passive: true });
-function chime() {
+// Cada aviso suena distinto para saber qué es sin mirar.
+const TONES = {
+  info: [[880, 0], [1318.5, 0.12]],                     // indicación: dos notas que suben
+  radar: [[1567.98, 0], [1567.98, 0.13]],               // radar: dos pitidos agudos
+  section: [[659.25, 0], [1318.5, 0.14]],               // tramo: grave y agudo
+  arrive: [[783.99, 0], [987.77, 0.11], [1174.66, 0.22]], // llegada: acorde que sube
+};
+export function playSound(kind = 'info') {
+  if (!settings.chime) return 0;
+  return chime(kind);
+}
+function chime(kind = 'info') {
   if (!actx || actx.state !== 'running') return 0;
   const t = actx.currentTime;
-  for (const [f, d] of [[880, 0], [1318.5, 0.12]]) {
+  for (const [f, d] of TONES[kind] || TONES.info) {
     const o = actx.createOscillator(), g = actx.createGain();
     o.type = 'sine'; o.frequency.value = f;
     g.gain.setValueAtTime(0, t + d);
@@ -50,9 +61,9 @@ function chime() {
   return 380; // ms hasta empezar a hablar
 }
 
-export function speak(text) {
+export function speak(text, kind = 'info') {
   if (muted || !settings.voice) return;
-  const wait = settings.chime ? chime() : 0;
+  const wait = settings.chime ? chime(kind) : 0;
   if (wait) { setTimeout(() => say(text), wait); return; }
   say(text);
 }
@@ -179,7 +190,7 @@ export class Navigator {
           this.spoken.add('c' + this.camIdx);
           speak(cam.kind === 3
             ? `Semáforo con cámara a ${fmtDistSpeech(d)}`
-            : `Radar a ${fmtDistSpeech(d)}${cam.speed ? `. Límite ${cam.speed}` : ''}`);
+            : `Radar a ${fmtDistSpeech(d)}${cam.speed ? `. Límite ${cam.speed}` : ''}`, 'radar');
         }
       }
     }
@@ -191,7 +202,7 @@ export class Navigator {
       const toStart = sec.start - p.along;
       if (toStart > 0 && toStart <= 600 && !this.spoken.has('s' + i)) {
         this.spoken.add('s' + i);
-        speak(`Tramo de control de velocidad en ${fmtDistSpeech(toStart)}${sec.speed ? `. Límite ${sec.speed}` : ''}`);
+        speak(`Tramo de control de velocidad en ${fmtDistSpeech(toStart)}${sec.speed ? `. Límite ${sec.speed}` : ''}`, 'section');
       }
       if (p.along >= sec.start && p.along <= sec.end) {
         if (!this.secT[i]) {

@@ -86,7 +86,7 @@ export class FreeDrive {
         this.said.add(radar.id);
         this.speak(radar.kind === 3 ? `Semáforo con cámara a ${fmtDistSpeech(radar.dist)}`
           : radar.kind === 1 ? `Tramo de control de velocidad en ${fmtDistSpeech(radar.dist)}${radar.speed ? `. Límite ${radar.speed}` : ''}`
-          : `Radar a ${fmtDistSpeech(radar.dist)}${radar.speed ? `. Límite ${radar.speed}` : ''}`);
+          : `Radar a ${fmtDistSpeech(radar.dist)}${radar.speed ? `. Límite ${radar.speed}` : ''}`, radar.kind === 1 ? 'section' : 'radar');
       }
       if (radar.kind === 1 && radar.end && radar.dist < 40 && (!this.sec || this.sec.id !== radar.id)) {
         const len = haversine(radar.lat, radar.lon, radar.end[0], radar.end[1]);
