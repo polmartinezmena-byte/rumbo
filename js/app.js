@@ -1231,6 +1231,66 @@ function stopNav() {
 }
 
 map.on('dragstart', () => { if (nav) { follow = false; $('#btn-recenter').hidden = false; } });
+
+// ------------------------------------------------------------------ brújula
+// La aguja siempre señala el norte del mapa. Al tocarla: si el mapa está girado, vuelve el norte
+// arriba; si ya lo está, el mapa gira con el móvil (hacia donde miras); otro toque, norte otra vez.
+let headingUp = false, headTarget = null, headTimer = null;
+const compass = $('#btn-compass');
+const syncCompass = () => {
+  compass.querySelector('svg').style.transform = `rotate(${-map.getBearing()}deg)`;
+  compass.classList.toggle('active', headingUp);
+  compass.classList.toggle('rotated', Math.abs(map.getBearing()) > 1 || map.getPitch() > 1);
+};
+map.on('rotate', syncCompass);
+map.on('pitch', syncCompass);
+map.on('load', syncCompass);
+function onOrient(e) {
+  // iPhone: webkitCompassHeading (0 = norte). Android: alpha absoluto (va al revés).
+  const h = e.webkitCompassHeading ?? (e.absolute && e.alpha != null ? (360 - e.alpha) % 360 : null);
+  if (h == null || Number.isNaN(h)) return;
+  const screenAngle = screen.orientation?.angle ?? globalThis.orientation ?? 0;
+  headTarget = (h + screenAngle + 360) % 360;
+}
+function startHeadingUp() {
+  headingUp = true;
+  addEventListener('deviceorientationabsolute', onOrient);
+  addEventListener('deviceorientation', onOrient);
+  // Se aplica unas 8 veces por segundo y solo si cambia de verdad: suave y sin gastar batería.
+  headTimer = setInterval(() => {
+    if (headTarget == null || nav) return;
+    const diff = ((headTarget - map.getBearing() + 540) % 360) - 180;
+    if (Math.abs(diff) > 2) map.easeTo({ bearing: headTarget, duration: 150, easing: (t) => t });
+  }, 125);
+  if (gps) map.easeTo({ center: [gps.lon, gps.lat], duration: 400 });
+  syncCompass();
+  toast('Mapa orientado hacia donde miras. Toca la brújula para volver al norte.');
+}
+function stopHeadingUp() {
+  headingUp = false;
+  removeEventListener('deviceorientationabsolute', onOrient);
+  removeEventListener('deviceorientation', onOrient);
+  clearInterval(headTimer);
+  headTarget = null;
+  syncCompass();
+}
+compass.onclick = async () => {
+  if (nav) { // en marcha el mapa ya gira con la ruta: la brújula enseña el norte un momento
+    follow = false; $('#btn-recenter').hidden = false;
+    return map.easeTo({ bearing: 0, pitch: 0, duration: 500 });
+  }
+  if (headingUp) { stopHeadingUp(); return map.easeTo({ bearing: 0, pitch: 0, duration: 500 }); }
+  if (Math.abs(map.getBearing()) > 1 || map.getPitch() > 1) return map.easeTo({ bearing: 0, pitch: 0, duration: 500 });
+  // iPhone pide permiso para usar la brújula (solo se puede pedir al tocar un botón).
+  if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+    const ok = await DeviceOrientationEvent.requestPermission().catch(() => 'denied');
+    if (ok !== 'granted') return toast('Sin permiso para la brújula: actívalo en Ajustes del iPhone › Safari › Movimiento y orientación');
+  }
+  if (!('DeviceOrientationEvent' in globalThis)) return toast('Este dispositivo no tiene brújula');
+  startHeadingUp();
+};
+// Si giras el mapa con los dedos, la brújula deja de mandar.
+map.on('rotatestart', (e) => { if (e.originalEvent && headingUp) stopHeadingUp(); });
 $('#btn-recenter').onclick = () => { follow = true; $('#btn-recenter').hidden = true; };
 $('#btn-go').onclick = () => startNav(false);
 // El simulador solo se ofrece en desarrollo (para probar rutas desde el ordenador).

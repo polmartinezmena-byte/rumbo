@@ -465,3 +465,13 @@ body.free-drive:not(.navigating) .b-radar { margin-top: 0; font-size: 17px; padd
 body.free-drive:not(.navigating) .b-section { margin-top: 0; }
 body.free-drive:not(.navigating):not(.has-sheet) .speed { bottom: calc(96px + var(--safe-bottom)); }
 @media (min-width: 700px) { body.free-drive:not(.navigating):not(.has-sheet) .speed { bottom: calc(24px + var(--safe-bottom)); } }
+
+/* ---------- v10: brújula ---------- */
+.fab.compass { color: var(--text); }
+.fab.compass .needle { width: 30px; height: 30px; transition: transform 0.15s linear; }
+.fab.compass .needle .n { fill: #dc2626; }
+.fab.compass .needle .s { fill: var(--muted); opacity: 0.55; }
+.fab.compass .needle circle { fill: var(--surface); stroke: var(--muted); stroke-width: 1; }
+.fab.compass.active { background: var(--primary); border-color: transparent; box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.2), var(--shadow); }
+.fab.compass.active .needle .s { fill: #fff; opacity: 0.8; }
+.fab.compass.active .needle circle { fill: var(--primary); stroke: #fff; }
