@@ -295,7 +295,7 @@ details[open] summary::before { transform: rotate(45deg); }
 
 /* ------------------------------------------------------------------ marcadores del mapa */
 .me { width: 22px; height: 22px; border-radius: 50%; background: var(--primary); border: 3px solid #fff; box-shadow: 0 0 0 7px rgba(37, 99, 235, 0.22), 0 2px 6px rgba(0, 0, 0, 0.3); }
-.me-nav { width: 44px; height: 44px; }
+.me-nav { width: 52px; height: 52px; }
 .me-nav svg { width: 100%; height: 100%; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4)); }
 .popup { display: flex; flex-direction: column; gap: 6px; min-width: 160px; }
 .popup button { border: 0; border-radius: var(--r-sm); padding: 10px 12px; font: inherit; font-weight: 600; cursor: pointer; background: #eff6ff; color: #1e3a8a; }
@@ -508,3 +508,14 @@ body.free-drive:not(.navigating) .banner #b-lanes { display: none !important; }
   body.free-drive:not(.navigating):not(.has-sheet) .speed { bottom: calc(var(--bottom-h, 60px) + 28px + var(--safe-bottom)); }
   .pills { order: 0; }
 }
+
+/* ---------- v13: icono de tu posición ---------- */
+.me-nav svg { width: 100%; height: 100%; filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.4)); overflow: visible; }
+.marker-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 4px; }
+.marker-opt { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 4px 8px; border-radius: var(--r); border: 2px solid transparent;
+  background: var(--surface-2); color: var(--text); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.marker-opt svg { width: 40px; height: 40px; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.25)); }
+.marker-opt[aria-checked="true"] { border-color: var(--primary); background: var(--primary-soft); }
+.color-row { display: flex; gap: 10px; margin: 10px 0 2px; }
+.color-opt { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--surface); background: var(--c); box-shadow: 0 0 0 1px var(--line-strong); cursor: pointer; }
+.color-opt[aria-checked="true"] { box-shadow: 0 0 0 3px var(--primary); }

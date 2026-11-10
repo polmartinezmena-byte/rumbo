@@ -15,6 +15,8 @@ export const DEFAULTS = {
   emergencyNumber: '112',
   theme: 'auto',             // auto | light | dark
   mapNight: 'auto',          // mapa oscuro: auto (de noche) | on | off
+  markerIcon: 'flecha',      // icono de tu posición al conducir (js/markers.js)
+  markerColor: 'azul',
   screenAlways: false,       // pantalla encendida con la app abierta (si no, solo al navegar y al descargar)
   sticker: '',               // etiqueta DGT: '0' | 'ECO' | 'C' | 'B' | 'A' (sin etiqueta) | '' (no lo sé)
   avoidZbe: true,            // evitar las ZBE donde la etiqueta no puede entrar

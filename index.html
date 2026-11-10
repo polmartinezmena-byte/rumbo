@@ -315,6 +315,11 @@
         <label class="set"><span>Pantalla siempre encendida <small class="muted">(con la app abierta; al navegar se mantiene encendida siempre)</small></span><input type="checkbox" class="switch" data-set="screenAlways"></label>
         <label class="set"><span>Edificios en 3D <small class="muted">(desactívalo si el mapa va lento)</small></span><input type="checkbox" class="switch" data-set="buildings3d"></label>
         <div class="set col">
+          <span class="small muted">Tu icono al conducir</span>
+          <div id="marker-icons" class="marker-grid" role="radiogroup" aria-label="Icono de tu posición"></div>
+          <div id="marker-colors" class="color-row" role="radiogroup" aria-label="Color del icono"></div>
+        </div>
+        <div class="set col">
           <span class="small muted">Mapa</span>
           <div class="seg" data-seg="mapNight">
             <button data-v="auto">De noche, oscuro</button><button data-v="off">Siempre claro</button><button data-v="on">Siempre oscuro</button>

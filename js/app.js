@@ -8,6 +8,7 @@ import { nativeStop } from './native.js';
 import { keepAwake, allowSleep } from './awake.js';
 import { FreeDrive } from './free-drive.js';
 import { LANE_ANGLE } from './lanes.js';
+import { markerSvg, MARKER_ICONS, MARKER_COLORS } from './markers.js';
 import { offlineStyle, registerOfflineProtocol } from './map-offline.js';
 
 applyTheme();
@@ -278,6 +279,11 @@ const destMarker = new maplibregl.Marker({ color: '#dc2626' });
 const meEl = document.createElement('div');
 meEl.className = 'me';
 const meMarker = new maplibregl.Marker({ element: meEl, rotationAlignment: 'map', pitchAlignment: 'map' });
+// Al conducir (guiado o sin ruta) tu posición es el icono que elijas; parado, el punto azul.
+function setDriveMarker(on) {
+  if (on) { meEl.className = 'me-nav'; meEl.innerHTML = markerSvg(settings.markerIcon, settings.markerColor); }
+  else { meEl.className = 'me'; meEl.innerHTML = ''; }
+}
 let meOnMap = false;
 
 const hasMaps = () => Object.keys(catalog).length > 0;
@@ -1159,8 +1165,7 @@ function startNav(simulate) {
     return toast('Esperando señal GPS… Comprueba que Rumbo tiene permiso de ubicación.');
   }
   document.body.classList.add('navigating');
-  meEl.className = 'me-nav';
-  meEl.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 2 20 21 12 17 4 21z" fill="#2563eb" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>';
+  setDriveMarker(true);
   follow = true;
   $('#banner').hidden = false;
   $('#speed').hidden = false;
@@ -1293,12 +1298,13 @@ function renderFree(s) {
   if (nav) return;
   if (!s) {
     document.body.classList.remove('free-drive');
+    setDriveMarker(false);
     $('#banner').hidden = true;
     $('#speed').hidden = true;
     allowSleep('libre');
     return;
   }
-  if (!document.body.classList.contains('free-drive')) { document.body.classList.add('free-drive'); keepAwake('libre'); }
+  if (!document.body.classList.contains('free-drive')) { document.body.classList.add('free-drive'); keepAwake('libre'); setDriveMarker(true); }
   const kmh = s.speed * 3.6;
   $('#speed').hidden = false;
   $('#speed-v').textContent = Math.round(kmh);
@@ -1706,7 +1712,33 @@ function renderSettings() {
   $('#set-maps-n').textContent = maps.length ? `${maps.length} descargado${maps.length > 1 ? 's' : ''} ›` : 'Ninguno ›';
 }
 
-$('#btn-settings').onclick = () => { setSheet('settings'); renderSettings(); };
+// Selector del icono de tu posición (con vista previa en el color elegido).
+function renderMarkerPicker() {
+  const icons = $('#marker-icons'), colors = $('#marker-colors');
+  icons.innerHTML = '';
+  for (const [k, name] of Object.entries(MARKER_ICONS)) {
+    const b = document.createElement('button');
+    b.className = 'marker-opt';
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-checked', String(settings.markerIcon === k));
+    b.innerHTML = `${markerSvg(k, settings.markerColor)}<span>${name}</span>`;
+    b.onclick = () => setSetting('markerIcon', k);
+    icons.appendChild(b);
+  }
+  colors.innerHTML = '';
+  for (const [k, hex] of Object.entries(MARKER_COLORS)) {
+    const b = document.createElement('button');
+    b.className = 'color-opt';
+    b.style.setProperty('--c', hex);
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-checked', String(settings.markerColor === k));
+    b.setAttribute('aria-label', k);
+    b.onclick = () => setSetting('markerColor', k);
+    colors.appendChild(b);
+  }
+}
+
+$('#btn-settings').onclick = () => { setSheet('settings'); renderSettings(); renderMarkerPicker(); };
 $('#btn-close-settings').onclick = backToMain;
 $('#btn-close-credits').onclick = () => { setSheet('settings'); renderSettings(); };
 $('#app-version').textContent = `versión ${APP_VERSION}`;
@@ -1760,6 +1792,7 @@ onSettingChange((key) => {
   if (key === 'theme') applyTheme();
   if (key === 'buildings3d') apply3d();
   if (key === 'mapNight') applyMapNight();
+  if (key === 'markerIcon' || key === 'markerColor') { renderMarkerPicker(); if (nav || free.active) setDriveMarker(true); }
   if (key === 'screenAlways') settings.screenAlways ? keepAwake('siempre') : allowSleep('siempre');
   if (key === 'emergencyNumber') renderEmergencyNumber();
   if (key === 'floodMode') renderRain();
