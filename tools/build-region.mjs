@@ -44,9 +44,19 @@ const t0 = Date.now();
 mkdirSync(CACHE, { recursive: true });
 const pbf = opt('--pbf', join(CACHE, `${region.id}.osm.pbf`));
 if (!existsSync(pbf)) {
-  const url = `https://download.geofabrik.de/${region.geofabrik}-latest.osm.pbf`;
-  log('Descargando', url);
-  const r = await fetch(url, { headers: { 'User-Agent': 'rumbo-pack-builder (github.com)' } });
+  // Geofabrik sirve cada región en su propia carpeta (europe/spain/ceuta/ceuta-latest.osm.pbf);
+  // se mantiene la ruta antigua (europe/spain/ceuta-latest.osm.pbf) como alternativa.
+  const base = region.geofabrik.split('/').pop();
+  const urls = [
+    `https://download.geofabrik.de/${region.geofabrik}/${base}-latest.osm.pbf`,
+    `https://download.geofabrik.de/${region.geofabrik}-latest.osm.pbf`,
+  ];
+  let r;
+  for (const url of urls) {
+    log('Descargando', url);
+    r = await fetch(url, { headers: { 'User-Agent': 'rumbo-pack-builder (github.com)' } });
+    if (r.ok) break;
+  }
   if (!r.ok) throw new Error(`Geofabrik respondió ${r.status}`);
   await pipeline(Readable.fromWeb(r.body), createWriteStream(pbf));
 }
