@@ -13,7 +13,7 @@ import { gunzipSync } from 'node:zlib';
 
 const OUT = process.argv[2] && !process.argv[2].startsWith('--') ? process.argv[2] : 'datos';
 const WITH_ZBE = process.argv.includes('--zbe');
-const UA = { 'User-Agent': 'rumbo-datos (github.com/polmartinezmena-byte/rumbo)' };
+const UA = { 'User-Agent': 'rumbo-datos (github.com/polmartinezmena/rumbo)' };
 mkdirSync(OUT, { recursive: true });
 
 const tag = (s, name) => s.match(new RegExp(`<${name}>([^<]*)</${name}>`))?.[1];

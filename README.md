@@ -17,7 +17,7 @@
 </p>
 
 <!-- Añade un GIF de la demo en docs/demo.gif -->
-<p align="center"><a href="https://polmartinezmena-byte.github.io/rumbo/"><b>▶ Probar la demo</b></a></p>
+<p align="center"><a href="https://polmartinezmena.github.io/rumbo/"><b>▶ Probar la demo</b></a></p>
 
 ---
 

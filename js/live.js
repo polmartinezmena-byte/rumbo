@@ -8,7 +8,7 @@ import * as db from './db.js';
 // En desarrollo (localhost) se leen los generados en local con: node tools/datos.mjs tools/.cache/datos --zbe
 export const DATA_BASE = globalThis.location?.port === '5173'
   ? new URL('../tools/.cache/datos/', globalThis.location.href).href
-  : 'https://raw.githubusercontent.com/polmartinezmena-byte/rumbo/datos/';
+  : 'https://raw.githubusercontent.com/polmartinezmena/rumbo/datos/';
 // El Ministerio sí permite CORS: los precios se piden directamente.
 const FUEL_URL = 'https://sedeaplicaciones.minetur.gob.es/ServiciosRESTCarburantes/PreciosCarburantes/EstacionesTerrestres/';
 

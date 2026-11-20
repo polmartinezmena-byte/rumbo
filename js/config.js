@@ -10,7 +10,7 @@ export const NATIVE = !!globalThis.Capacitor?.isNativePlatform?.() ||
   loc?.protocol === 'capacitor:' || (loc?.hostname === 'localhost' && !loc?.port);
 
 /** Web publicada: de aquí salen los paquetes de comunidades cuando se usa la app nativa. */
-export const SITE = 'https://polmartinezmena-byte.github.io/rumbo/';
+export const SITE = 'https://polmartinezmena.github.io/rumbo/';
 
 /** Carpeta raíz de la app (la de index.html), tanto desde la página como desde js/graph-worker.js. */
 function appRoot() {
